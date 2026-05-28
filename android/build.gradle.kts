@@ -21,10 +21,20 @@ subprojects {
             val ext = project.extensions.findByName("android")
             if (ext != null) {
                 try {
-                    val namespaceObj = ext.javaClass.getMethod("getNamespace").invoke(ext)
+                    val commonExtClass = Class.forName("com.android.build.api.dsl.CommonExtension")
+                    val getNamespaceMethod = commonExtClass.getMethod("getNamespace")
+                    val namespaceObj = getNamespaceMethod.invoke(ext)
                     if (namespaceObj == null) {
-                        ext.javaClass.getMethod("setNamespace", String::class.java).invoke(ext, project.group.toString())
+                        val setNamespaceMethod = commonExtClass.getMethod("setNamespace", String::class.java)
+                        setNamespaceMethod.invoke(ext, project.group.toString())
                     }
+                } catch (e: Exception) {
+                    // ignore
+                }
+                try {
+                    val baseExtClass = Class.forName("com.android.build.gradle.BaseExtension")
+                    val setBuildToolsMethod = baseExtClass.getMethod("setBuildToolsVersion", String::class.java)
+                    setBuildToolsMethod.invoke(ext, "35.0.0")
                 } catch (e: Exception) {
                     // ignore
                 }
@@ -49,3 +59,5 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+
