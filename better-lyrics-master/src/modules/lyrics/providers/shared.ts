@@ -1,0 +1,239 @@
+import { LYRIC_SOURCE_KEYS, PROVIDER_CONFIGS, PROVIDER_SWITCHED_LOG } from "@constants";
+import { getTransientStorage, setTransientStorage } from "@core/storage";
+import { log } from "@utils";
+import unified from "./unified";
+import ytLyrics, { type YTLyricSourceResult } from "./yt";
+import { ytCaptions } from "./ytCaptions";
+import unison, { type UnisonLyricSourceResult } from "@modules/lyrics/providers/unison";
+/** Current version of the lyrics cache format */
+const LYRIC_CACHE_VERSION = "2.1.0";
+
+interface AudioTrackData {
+  id: string;
+  kc: {
+    name: string;
+    id: string;
+    isDefault: boolean;
+  };
+  captionTracks: {
+    languageCode: string;
+    languageName: string;
+    kind: string;
+    name: string;
+    displayName: string;
+    id: string | null;
+    j: boolean;
+    isTranslateable: boolean;
+    url: string;
+    vssId: string;
+    isDefault: boolean;
+    translationLanguage: string | null;
+    xtags: string;
+    captionId: string;
+  }[];
+  C: any;
+  xtags: string;
+  G: boolean;
+  j: any | null;
+  B: string;
+  captionsInitialState: string;
+}
+
+interface LyricSource {
+  filled: boolean;
+  resultCached: boolean;
+  lyricSourceResult: LyricSourceResult | UnisonLyricSourceResult | YTLyricSourceResult | null;
+  lyricSourceFiller: (providerParameters: ProviderParameters) => Promise<void>;
+}
+
+export interface LyricSourceResult {
+  lyrics: Lyric[] | null;
+  language?: string | null;
+  source: string;
+  sourceHref: string;
+  musicVideoSynced?: boolean | null;
+  cacheAllowed?: boolean;
+  album?: string;
+  artist?: string;
+  song?: string;
+  duration?: number;
+  unisonId?: number;
+}
+
+export type LyricsArray = Lyric[];
+
+export interface Lyric {
+  startTimeMs: number;
+  words: string;
+  durationMs: number;
+  key?: string;
+  parts?: LyricPart[];
+  agent?: string;
+  translations?: { [lang: string]: string };
+  translation?: { text: string; lang: string }; // old property
+  romanization?: string;
+  timedRomanization?: LyricPart[];
+  isInstrumental?: boolean;
+}
+
+export interface LyricPart {
+  startTimeMs: number;
+  words: string;
+  durationMs: number;
+  isBackground?: boolean;
+  explicit?: boolean;
+}
+
+export interface ProviderParameters {
+  song: string;
+  artist: string;
+  duration: number;
+  videoId: string;
+  audioTrackData: AudioTrackData | null;
+  album: string | null;
+  sourceMap: SourceMapType;
+  alwaysFetchMetadata: boolean;
+  signal: AbortSignal;
+}
+
+export type SourceMapType = {
+  [key in LyricSourceKey]: LyricSource;
+};
+
+const defaultPreferredProviderList: LyricSourceKey[] = [...PROVIDER_CONFIGS]
+  .sort((a, b) => a.priority - b.priority)
+  .map(p => p.key) as LyricSourceKey[];
+
+function isLyricSourceKey(provider: string): provider is LyricSourceKey {
+  return (LYRIC_SOURCE_KEYS as readonly string[]).includes(provider);
+}
+
+export let providerPriority: LyricSourceKey[] = [];
+
+let hasInitializedProviders = false;
+
+export function initProviders(): void {
+  if (hasInitializedProviders) {
+    return;
+  }
+  hasInitializedProviders = true;
+  const updateProvidersList = (preferredProviderList: string[] | null) => {
+    let activeProviderList: string[] = preferredProviderList ?? [...defaultPreferredProviderList];
+
+    const isValid = defaultPreferredProviderList.every(provider => {
+      return activeProviderList.includes(provider) || activeProviderList.includes(`d_${provider}`);
+    });
+
+    if (!isValid) {
+      activeProviderList = [...defaultPreferredProviderList];
+      log("Invalid preferred provider list, resetting to default");
+    }
+
+    // Use the type guard. The resulting array is known to be LyricSourceKey[]
+    const finalProviderList = activeProviderList.filter(isLyricSourceKey);
+
+    log(PROVIDER_SWITCHED_LOG, finalProviderList);
+    providerPriority = finalProviderList;
+  };
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync" && changes.preferredProviderList) {
+      updateProvidersList(changes.preferredProviderList.newValue as string[] | null);
+    }
+  });
+
+  chrome.storage.sync.get({ preferredProviderList: null }, function (items) {
+    updateProvidersList(items.preferredProviderList as string[] | null);
+  });
+}
+
+const sourceKeyToFillFn = {
+  "binimum-richsynced": (p: ProviderParameters) => unified(p, "binimum-richsynced"),
+  "binimum-synced": (p: ProviderParameters) => unified(p, "binimum-synced"),
+  "bLyrics-richsynced": (p: ProviderParameters) => unified(p, "bLyrics-richsynced"),
+  "bLyrics-synced": (p: ProviderParameters) => unified(p, "bLyrics-synced"),
+  "unison-richsynced": unison,
+  "unison-synced": unison,
+  "unison-plain": unison,
+  "musixmatch-richsync": (p: ProviderParameters) => unified(p, "musixmatch-richsync"),
+  "musixmatch-synced": (p: ProviderParameters) => unified(p, "musixmatch-synced"),
+  "lrclib-synced": (p: ProviderParameters) => unified(p, "lrclib-synced"),
+  "lrclib-plain": (p: ProviderParameters) => unified(p, "lrclib-plain"),
+  "yt-captions": ytCaptions,
+  "yt-lyrics": ytLyrics,
+  "legato-synced": (p: ProviderParameters) => unified(p, "legato-synced"),
+  "portato-richsynced": (p: ProviderParameters) => unified(p, "portato-richsynced"),
+  metadata: (p: ProviderParameters) => unified(p, "metadata" as LyricSourceKey),
+} as const;
+
+export type LyricSourceKey = Readonly<keyof typeof sourceKeyToFillFn>;
+
+export function newSourceMap(): SourceMapType {
+  function mapValues<T extends object, U>(obj: T, fn: (value: T[keyof T], key: keyof T) => U): { [K in keyof T]: U } {
+    return Object.fromEntries(
+      Object.entries(obj).map(([key, value]) => [key, fn(value as T[keyof T], key as keyof T)])
+    ) as { [K in keyof T]: U };
+  }
+
+  return mapValues(sourceKeyToFillFn, filler => ({
+    filled: false,
+    lyricSourceResult: null,
+    resultCached: false,
+    lyricSourceFiller: filler,
+  }));
+}
+
+export async function saveLyricsToCache(providerParameters: ProviderParameters, provider: LyricSourceKey) {
+  let source = providerParameters.sourceMap[provider];
+  if (
+    source.filled &&
+    !source.resultCached &&
+    source.lyricSourceResult &&
+    source.lyricSourceResult.cacheAllowed !== false
+  ) {
+    source.resultCached = true;
+    const cacheKey = `blyrics_${providerParameters.videoId}_${provider}`;
+    let versionedData = {
+      version: LYRIC_CACHE_VERSION,
+      ...source.lyricSourceResult,
+    };
+    const cacheTime = 7 * 24 * 60 * 60 * 1000;
+    await setTransientStorage(cacheKey, JSON.stringify(versionedData), cacheTime);
+  }
+}
+
+/**
+ * @param providerParameters
+ * @param sourceName
+ */
+export async function getLyrics(
+  providerParameters: ProviderParameters,
+  sourceName: LyricSourceKey
+): Promise<LyricSourceResult | null> {
+  let lyricSource = providerParameters.sourceMap[sourceName];
+  if (!lyricSource.filled) {
+    // Check cache first
+    const cacheKey = `blyrics_${providerParameters.videoId}_${sourceName}`;
+    const cachedData = await getTransientStorage(cacheKey);
+    if (cachedData) {
+      const data = JSON.parse(cachedData);
+      if (data && data.version && data.version === LYRIC_CACHE_VERSION) {
+        lyricSource.filled = true;
+        lyricSource.lyricSourceResult = data;
+        lyricSource.resultCached = true;
+        return data;
+      }
+    }
+
+    await lyricSource.lyricSourceFiller(providerParameters);
+  }
+
+  // Save result to cache for each provider
+  await Promise.allSettled(
+    defaultPreferredProviderList.map(async provider => {
+      await saveLyricsToCache(providerParameters, provider);
+    })
+  );
+
+  return lyricSource.lyricSourceResult;
+}
