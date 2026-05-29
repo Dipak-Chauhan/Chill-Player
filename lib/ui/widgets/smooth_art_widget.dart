@@ -214,6 +214,8 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
     } else {
       imageWidget = Container(
         key: const ValueKey('placeholder'),
+        width: double.infinity,
+        height: double.infinity,
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Center(
           child: Icon(Icons.music_note, 
@@ -230,11 +232,21 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: AnimatedSwitcher(
-        duration: duration,
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        child: imageWidget,
+      child: SizedBox.expand(
+        child: AnimatedSwitcher(
+          duration: duration,
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+            return Stack(
+              children: <Widget>[
+                ...previousChildren.map((child) => SizedBox.expand(child: child)),
+                if (currentChild != null) SizedBox.expand(child: currentChild),
+              ],
+            );
+          },
+          child: imageWidget,
+        ),
       ),
     );
   }

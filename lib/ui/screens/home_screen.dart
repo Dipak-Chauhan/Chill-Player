@@ -409,26 +409,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         final library = ref.read(globalLibraryProvider);
                         if (library.isEmpty) return;
 
-                        final currentQueue = ref.read(queueProvider);
-                        bool needsUpdate = currentQueue.length != library.length;
-                        if (!needsUpdate) {
-                          for (int i = 0; i < library.length; i++) {
-                            if (currentQueue[i].id != library[i].id) {
-                              needsUpdate = true;
-                              break;
-                            }
-                          }
-                        }
+                        // 1. Enable shuffle mode state
+                        await ref.read(shuffleModeProvider.notifier).setShuffle(true);
 
-                        if (needsUpdate) {
-                          await ref.read(queueProvider.notifier).setQueue(library);
-                        }
-
-                        final player = ref.read(audioPlayerProvider);
-                        await player.setShuffleModeEnabled(true);
-                        await player.shuffle();
+                        // 2. Select a random song to play first, and shuffle the rest
                         final randomIndex = math.Random().nextInt(library.length);
-                        await player.seek(Duration.zero, index: randomIndex);
+                        await ref.read(queueProvider.notifier).setQueue(
+                          library,
+                          initialIndex: randomIndex,
+                        );
+
                         ref.read(isPlayingProvider.notifier).play();
                       },
                       backgroundColor: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.95),

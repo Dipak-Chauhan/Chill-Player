@@ -74,6 +74,12 @@ class PlaylistsNotifier extends Notifier<List<Playlist>> {
     _saveToDisk();
   }
 
+  void createPlaylistWithSongs(String name, List<int> songIds) {
+    final id = DateTime.now().millisecondsSinceEpoch.toString();
+    state = [...state, Playlist(id: id, name: name, songIds: songIds)];
+    _saveToDisk();
+  }
+
   void deletePlaylist(String id) {
     state = state.where((p) => p.id != id).toList();
     _saveToDisk();
