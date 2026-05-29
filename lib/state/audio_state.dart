@@ -71,7 +71,17 @@ class IsSwappingPlaylistNotifier extends Notifier<bool> {
 }
 final isSwappingPlaylistProvider = NotifierProvider<IsSwappingPlaylistNotifier, bool>(IsSwappingPlaylistNotifier.new);
 
+class ExpectedPlayerIndexNotifier extends Notifier<int?> {
+  @override
+  int? build() => null;
+  void setExpected(int? val) => state = val;
+  void clear() => state = null;
+}
+final expectedPlayerIndexProvider = NotifierProvider<ExpectedPlayerIndexNotifier, int?>(ExpectedPlayerIndexNotifier.new);
+
 class QueueNotifier extends Notifier<List<Song>> {
+  List<Song> _originalQueue = [];
+
   @override
   List<Song> build() {
     try {
@@ -87,12 +97,32 @@ class QueueNotifier extends Notifier<List<Song>> {
 
   Future<void> setQueue(List<Song> songs, {int? initialIndex, Duration? initialPosition}) async {
     ref.read(isSwappingPlaylistProvider.notifier).setSwapping(true);
-    state = songs;
+    
+    final isShuffle = ref.read(shuffleModeProvider);
+    List<Song> finalSongs = List<Song>.from(songs);
+    int finalInitialIndex = initialIndex ?? 0;
+    ref.read(expectedPlayerIndexProvider.notifier).setExpected(finalInitialIndex);
+    
+    if (isShuffle) {
+      _originalQueue = List<Song>.from(songs);
+      
+      // Shuffle list while keeping the initial index song active
+      if (finalSongs.isNotEmpty) {
+        final targetSong = finalSongs.removeAt(finalInitialIndex);
+        finalSongs.shuffle(math.Random());
+        finalSongs.insert(0, targetSong);
+        finalInitialIndex = 0;
+      }
+    } else {
+      _originalQueue = [];
+    }
+
+    state = finalSongs;
     final player = ref.read(audioPlayerProvider);
     
     // Create ConcatenatingAudioSource for gapless playback & immediate skip
     final playlist = ConcatenatingAudioSource(
-      children: songs.map((song) => AudioSource.uri(
+      children: finalSongs.map((song) => AudioSource.uri(
         Uri.file(song.uri),
         tag: MediaItem(
           id: song.id.toString(),
@@ -107,39 +137,177 @@ class QueueNotifier extends Notifier<List<Song>> {
     
     await player.setAudioSource(
       playlist,
-      initialIndex: initialIndex,
+      initialIndex: finalInitialIndex,
       initialPosition: initialPosition,
     );
     
     // Once explicitly verified and mounted, drop the firewall firewall and force the UI sync
     ref.read(isSwappingPlaylistProvider.notifier).setSwapping(false);
+    ref.read(expectedPlayerIndexProvider.notifier).clear();
+    ref.read(currentSongProvider.notifier).forceSync();
+  }
+
+  Future<void> enableShuffle() async {
+    if (state.isEmpty) return;
+    
+    ref.read(isSwappingPlaylistProvider.notifier).setSwapping(true);
+    ref.read(expectedPlayerIndexProvider.notifier).setExpected(0);
+    
+    // Save current state as original
+    _originalQueue = List<Song>.from(state);
+    
+    final currentSong = ref.read(currentSongProvider);
+    final currentSongId = currentSong?.id;
+    
+    final listToShuffle = List<Song>.from(state);
+    Song? activeSong;
+    if (currentSongId != null) {
+      final activeIndex = listToShuffle.indexWhere((s) => s.id == currentSongId);
+      if (activeIndex >= 0) {
+        activeSong = listToShuffle.removeAt(activeIndex);
+      }
+    }
+    
+    listToShuffle.shuffle(math.Random());
+    
+    final shuffledList = <Song>[];
+    if (activeSong != null) {
+      shuffledList.add(activeSong);
+    }
+    shuffledList.addAll(listToShuffle);
+    
+    state = shuffledList;
+    
+    final player = ref.read(audioPlayerProvider);
+    final playlist = ConcatenatingAudioSource(
+      children: shuffledList.map((song) => AudioSource.uri(
+        Uri.file(song.uri),
+        tag: MediaItem(
+          id: song.id.toString(),
+          album: song.album,
+          title: song.title,
+          artist: song.artist,
+          duration: song.duration,
+          artUri: Uri.parse('content://media/external/audio/media/${song.id}/albumart'),
+        ),
+      )).toList(),
+    );
+    
+    final currentPosition = player.position;
+    await player.setAudioSource(
+      playlist,
+      initialIndex: 0,
+      initialPosition: currentPosition,
+    );
+    
+    ref.read(isSwappingPlaylistProvider.notifier).setSwapping(false);
+    ref.read(expectedPlayerIndexProvider.notifier).clear();
+    ref.read(currentSongProvider.notifier).forceSync();
+  }
+
+  Future<void> disableShuffle() async {
+    if (_originalQueue.isEmpty) return;
+    
+    ref.read(isSwappingPlaylistProvider.notifier).setSwapping(true);
+    
+    final currentSong = ref.read(currentSongProvider);
+    final currentSongId = currentSong?.id;
+    
+    int targetIndex = 0;
+    if (currentSongId != null) {
+      final idx = _originalQueue.indexWhere((s) => s.id == currentSongId);
+      if (idx >= 0) {
+        targetIndex = idx;
+      }
+    }
+    ref.read(expectedPlayerIndexProvider.notifier).setExpected(targetIndex);
+    
+    final restoredList = List<Song>.from(_originalQueue);
+    state = restoredList;
+    _originalQueue = [];
+    
+    final player = ref.read(audioPlayerProvider);
+    final playlist = ConcatenatingAudioSource(
+      children: restoredList.map((song) => AudioSource.uri(
+        Uri.file(song.uri),
+        tag: MediaItem(
+          id: song.id.toString(),
+          album: song.album,
+          title: song.title,
+          artist: song.artist,
+          duration: song.duration,
+          artUri: Uri.parse('content://media/external/audio/media/${song.id}/albumart'),
+        ),
+      )).toList(),
+    );
+    
+    final currentPosition = player.position;
+    await player.setAudioSource(
+      playlist,
+      initialIndex: targetIndex,
+      initialPosition: currentPosition,
+    );
+    
+    ref.read(isSwappingPlaylistProvider.notifier).setSwapping(false);
+    ref.read(expectedPlayerIndexProvider.notifier).clear();
     ref.read(currentSongProvider.notifier).forceSync();
   }
 
   /// Reorder a song in the queue from oldIndex to newIndex
   void reorder(int oldIndex, int newIndex) {
     if (oldIndex == newIndex) return;
+    
+    // Activate firewall to prevent player from emitting intermediate mismatched indices
+    ref.read(isSwappingPlaylistProvider.notifier).setSwapping(true);
+    
+    final player = ref.read(audioPlayerProvider);
+    final currentIndex = player.currentIndex;
+    
+    if (currentIndex != null) {
+      int expectedIndex = currentIndex;
+      if (currentIndex == oldIndex) {
+        expectedIndex = newIndex;
+      } else if (oldIndex < currentIndex && currentIndex <= newIndex) {
+        expectedIndex = currentIndex - 1;
+      } else if (newIndex <= currentIndex && currentIndex < oldIndex) {
+        expectedIndex = currentIndex + 1;
+      }
+      ref.read(expectedPlayerIndexProvider.notifier).setExpected(expectedIndex);
+    }
+    
     final list = List<Song>.from(state);
     final item = list.removeAt(oldIndex);
-    list.insert(newIndex < oldIndex ? newIndex : newIndex, item);
+    list.insert(newIndex, item);
     state = list;
 
     // Also reorder in the audio player's concatenating source
-    final player = ref.read(audioPlayerProvider);
     if (player.audioSource is ConcatenatingAudioSource) {
       (player.audioSource as ConcatenatingAudioSource).move(oldIndex, newIndex);
     }
+    
+    // Fallback: in case player.currentIndex doesn't emit or the event is lost, 
+    // release the firewall after 200ms
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (ref.read(isSwappingPlaylistProvider)) {
+        ref.read(isSwappingPlaylistProvider.notifier).setSwapping(false);
+        ref.read(expectedPlayerIndexProvider.notifier).clear();
+      }
+    });
   }
 
   /// Remove a song from the queue
   void removeAt(int index) {
     final list = List<Song>.from(state);
-    list.removeAt(index);
+    final removedSong = list.removeAt(index);
     state = list;
 
     final player = ref.read(audioPlayerProvider);
     if (player.audioSource is ConcatenatingAudioSource) {
       (player.audioSource as ConcatenatingAudioSource).removeAt(index);
+    }
+    
+    if (_originalQueue.isNotEmpty) {
+      _originalQueue.removeWhere((s) => s.id == removedSong.id);
     }
   }
 }
@@ -166,7 +334,16 @@ class CurrentSongNotifier extends Notifier<Song?> {
     _sub?.cancel();
     _sub = player.currentIndexStream.listen((index) {
       // FIREWALL: Do not let just_audio dictate the UI during massive native playlist 15k swaps!
-      if (ref.read(isSwappingPlaylistProvider)) return;
+      if (ref.read(isSwappingPlaylistProvider)) {
+        final expected = ref.read(expectedPlayerIndexProvider);
+        if (expected != null && index == expected) {
+          // The player has arrived at our expected index! Disengage the firewall instantly!
+          ref.read(isSwappingPlaylistProvider.notifier).setSwapping(false);
+          ref.read(expectedPlayerIndexProvider.notifier).clear();
+        } else {
+          return;
+        }
+      }
 
       final queue = ref.read(queueProvider);
       if (index != null && index >= 0 && index < queue.length) {
@@ -387,22 +564,26 @@ class PlaybackPositionNotifier extends Notifier<Duration> {
 final playbackPositionProvider = NotifierProvider<PlaybackPositionNotifier, Duration>(PlaybackPositionNotifier.new);
 
 class ShuffleModeNotifier extends Notifier<bool> {
-  StreamSubscription? _sub;
-
   @override
   bool build() {
-    final player = ref.watch(audioPlayerProvider);
-    _sub?.cancel();
-    _sub = player.shuffleModeEnabledStream.listen((shuffle) {
-      if (state != shuffle) state = shuffle;
-    });
-    ref.onDispose(() => _sub?.cancel());
     return false;
   }
 
-  void toggle() {
-    final player = ref.read(audioPlayerProvider);
-    player.setShuffleModeEnabled(!state);
+  Future<void> setShuffle(bool val) async {
+    if (state != val) {
+      state = val;
+      
+      final queueNotifier = ref.read(queueProvider.notifier);
+      if (val) {
+        await queueNotifier.enableShuffle();
+      } else {
+        await queueNotifier.disableShuffle();
+      }
+    }
+  }
+
+  Future<void> toggle() async {
+    await setShuffle(!state);
   }
 }
 final shuffleModeProvider = NotifierProvider<ShuffleModeNotifier, bool>(ShuffleModeNotifier.new);
@@ -653,7 +834,11 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
           }
           final side = singerSideMap[singer]!;
           assigned.add(line.copyWith(singerSide: side));
-          if (side == 'left') leftCount++; else rightCount++;
+          if (side == 'left') {
+            leftCount++;
+          } else {
+            rightCount++;
+          }
           totalDuetLines++;
         }
       }

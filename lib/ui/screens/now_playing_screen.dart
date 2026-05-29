@@ -32,14 +32,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   late PageController _pageController;
   final ValueNotifier<double> _pageNotifier = ValueNotifier<double>(0.0);
   bool _isProgrammaticScroll = false;
+  int? _lastSafeIndex;
+  bool _isReorderOrShuffle = false;
 
   @override
   void initState() {
     super.initState();
     final queue = ref.read(queueProvider);
     final currentSong = ref.read(currentSongProvider);
-    final initialIndex = currentSong != null ? queue.indexOf(currentSong) : 0;
+    final initialIndex = currentSong != null ? queue.indexWhere((s) => s.id == currentSong.id) : 0;
     final safeInitialIndex = initialIndex >= 0 ? initialIndex : 0;
+    _lastSafeIndex = safeInitialIndex;
     
     _pageController = PageController(
       initialPage: safeInitialIndex,
@@ -93,22 +96,57 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     ref.listen<Song?>(currentSongProvider, (previous, next) {
       if (next != null) {
         final queue = ref.read(queueProvider);
-        final nextIndex = queue.indexOf(next);
+        final nextIndex = queue.indexWhere((s) => s.id == next.id);
+        if (nextIndex >= 0) {
+          _lastSafeIndex = nextIndex;
+          if (_pageController.hasClients) {
+            final currentPage = _pageController.page ?? 0.0;
+            final double diff = (currentPage - nextIndex).abs();
+            
+            // Only animate if the PageView is not already scrolling/snapping to the target page (diff >= 0.5)
+            if (diff >= 0.5) {
+              _isProgrammaticScroll = true;
+              _pageController.animateToPage(
+                nextIndex,
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.easeOutCubic,
+              ).then((_) {
+                _isProgrammaticScroll = false;
+              }).catchError((_) {
+                _isProgrammaticScroll = false;
+              });
+            }
+          }
+        }
+      }
+    });
+
+    // Listen for queue changes (shuffle or reordering) to instantly jump PageView to the new song position,
+    // keeping the currently playing artwork static and perfectly in sync!
+    ref.listen<List<Song>>(queueProvider, (previous, next) {
+      final currentSong = ref.read(currentSongProvider);
+      if (currentSong != null) {
+        final nextIndex = next.indexWhere((s) => s.id == currentSong.id);
         if (nextIndex >= 0 && _pageController.hasClients) {
           final currentPage = _pageController.page ?? 0.0;
-          final double diff = (currentPage - nextIndex).abs();
-          
-          // Only animate if the PageView is not already scrolling/snapping to the target page (diff >= 0.5)
-          if (diff >= 0.5) {
+          if ((currentPage - nextIndex).abs() >= 0.5) {
+            if (mounted) {
+              setState(() {
+                _lastSafeIndex = currentPage.round();
+                _isReorderOrShuffle = true;
+              });
+            }
+            
             _isProgrammaticScroll = true;
-            _pageController.animateToPage(
-              nextIndex,
-              duration: const Duration(milliseconds: 500),
-              curve: Curves.easeOutCubic,
-            ).then((_) {
-              _isProgrammaticScroll = false;
-            }).catchError((_) {
-              _isProgrammaticScroll = false;
+            _pageController.jumpToPage(nextIndex);
+            _isProgrammaticScroll = false;
+            
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _isReorderOrShuffle = false;
+                });
+              }
             });
           }
         }
@@ -132,6 +170,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
+            elevation: 0,
+            showDragHandle: false,
+            barrierColor: Colors.black.withValues(alpha: 0.35),
             constraints: const BoxConstraints(maxWidth: double.infinity),
             builder: (context) => QueueScreen(systemPadding: rootPadding),
           );
@@ -347,6 +388,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               child: Transform.scale(
                 scale: artScale,
                 child: PageView.builder(
+                  key: const ValueKey('now_playing_page_view'),
                   controller: _pageController,
                   itemCount: queue.length,
                   physics: const BouncingScrollPhysics(parent: PageScrollPhysics()), // Snaps to pages perfectly with gorgeous physics!
@@ -361,7 +403,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                   },
                   itemBuilder: (context, index) {
                     if (index < 0 || index >= queue.length) return const SizedBox.shrink();
-                    final itemSong = queue[index];
+                    final queueSong = queue[index];
+                    
+                    // Render the currently playing song at its old index during the transitional
+                    // frame of a queue reorder or shuffle. This prevents the wrong artwork from
+                    // rendering for even a single frame while the PageView is waiting to jump to its new index.
+                    final itemSong = (_isReorderOrShuffle && index == _lastSafeIndex) ? song : queueSong;
                     final isPlaying = ref.watch(isPlayingProvider);
                     
                     // Calculate deviation of this page from the currently visible center
@@ -403,8 +450,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       ),
                     );
                     
-                    // Only wrap the active song card in Hero to prevent duplicate hero tag crashes
-                    if (itemSong.id == song.id) {
+                    // Only wrap the active song card in Hero if it's the visible page to prevent duplicate hero tag crashes
+                    final isVisible = (index - pageValue).abs() < 0.5;
+                    if (itemSong.id == song.id && isVisible) {
                       return Hero(
                         tag: 'player_art_hero',
                         child: card,

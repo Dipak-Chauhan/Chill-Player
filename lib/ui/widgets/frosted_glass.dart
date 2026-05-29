@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 /// A premium frosted glass container that avoids color banding.
@@ -45,14 +44,7 @@ class FrostedGlass extends StatelessWidget {
             stops: const [0.0, 0.5, 1.0],
           ),
         ),
-        child: Stack(
-          fit: StackFit.passthrough,
-          children: [
-            // Grain overlay to dither any remaining banding
-            const Positioned.fill(child: _GrainOverlay()),
-            child,
-          ],
-        ),
+        child: child,
       ),
     );
 
@@ -65,49 +57,4 @@ class FrostedGlass extends StatelessWidget {
 
     return content;
   }
-}
-
-/// A subtle procedural noise overlay that breaks up color banding.
-/// Uses a custom painter for minimal overhead.
-class _GrainOverlay extends StatelessWidget {
-  const _GrainOverlay();
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        painter: _GrainPainter(
-          opacity: 0.04, // Very subtle—just enough to dither bands
-          isDark: Theme.of(context).brightness == Brightness.dark,
-        ),
-      ),
-    );
-  }
-}
-
-class _GrainPainter extends CustomPainter {
-  final double opacity;
-  final bool isDark;
-
-  _GrainPainter({required this.opacity, required this.isDark});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rng = math.Random(42); // Fixed seed for stable grain
-    final paint = Paint();
-    const step = 3.0; // Grain cell size in logical pixels
-
-    for (double y = 0; y < size.height; y += step) {
-      for (double x = 0; x < size.width; x += step) {
-        final v = rng.nextDouble();
-        paint.color = (isDark ? Colors.white : Colors.black)
-            .withValues(alpha: v * opacity);
-        canvas.drawRect(Rect.fromLTWH(x, y, step, step), paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_GrainPainter oldDelegate) =>
-      oldDelegate.opacity != opacity || oldDelegate.isDark != isDark;
 }
