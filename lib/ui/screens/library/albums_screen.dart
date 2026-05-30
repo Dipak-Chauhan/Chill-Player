@@ -1,6 +1,7 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:on_audio_query/on_audio_query.dart';
 import '../../widgets/smooth_art_widget.dart';
+import '../../widgets/spring_button.dart';
 import 'album_details_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/smart_library.dart';
@@ -22,67 +23,112 @@ class AlbumsScreen extends ConsumerWidget {
           padding: EdgeInsets.only(top: 80.0 + topPadding + 16, bottom: 150.0, left: 16.0, right: 16.0),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
-            childAspectRatio: 0.70, // Slightly taller to fit text comfortably
+            childAspectRatio: 0.82, // Unified premium child aspect ratio matching library cards
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
           ),
           itemCount: albums.length,
           itemBuilder: (context, index) {
             final album = albums[index];
-            final cardWidget = Card(
-              elevation: 0,
-              margin: EdgeInsets.zero,
-              color: Theme.of(context).colorScheme.surfaceContainer,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumDetailsScreen(album: album)));
-                },
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 1.0,
-                      child: Hero(
-                        tag: 'album_${album.name}',
-                        child: SmoothArtWidget(
-                          id: album.fallbackImageId,
-                          size: 400,
-                          isMini: true,
-                          artworkType: ArtworkType.AUDIO,
-                          borderRadius: 0,
-                          iconSize: 50,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12.0, 10.0, 12.0, 8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            album.name,
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            album.albumArtist.isEmpty ? "Unknown Artist" : album.albumArtist,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
+            
+            final cardWidget = SpringButton(
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => AlbumDetailsScreen(album: album)));
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.15),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
                     ),
                   ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      // 1. Bottom Layer: Full-Cover Art Background
+                      Positioned.fill(
+                        child: Hero(
+                          tag: 'album_${album.name}',
+                          child: SmoothArtWidget(
+                            id: album.fallbackImageId,
+                            size: 400,
+                            borderRadius: 0,
+                            iconSize: 40,
+                          ),
+                        ),
+                      ),
+
+                      // 2. Middle Layer: Dark Radial Vignette
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: RadialGradient(
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.45),
+                              ],
+                              center: Alignment.center,
+                              radius: 0.85,
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // 3. Top Layer: Frosted Glass Bottom Panel
+                      Positioned(
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                            child: Container(
+                              color: Colors.black.withValues(alpha: 0.42),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    album.name,
+                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    album.albumArtist.isEmpty ? "Unknown Artist" : album.albumArtist,
+                                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.75),
+                                      fontWeight: FontWeight.w500,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
