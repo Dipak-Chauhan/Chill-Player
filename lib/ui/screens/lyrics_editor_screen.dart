@@ -8,6 +8,7 @@ import '../../services/lrclib_api.dart';
 import '../../theme/color_provider.dart';
 import '../../services/lyrics_plus_api.dart';
 import '../../state/audio_state.dart';
+import '../../state/lyrics_provider.dart';
 
 /// Full-screen lyrics editor allowing users to paste, type, or edit
 /// LRC lyrics for the current song. Supports ELRC (TTML), synced LRC,

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/translation_service.dart';
 import 'audio_state.dart';
+import 'lyrics_provider.dart';
 
 /// Display modes matching YouLy+'s toggle system.
 enum TranslationDisplayMode { none, translate, romanize, both }

@@ -13,6 +13,7 @@ import '../widgets/m3_loading_indicator.dart';
 import '../widgets/spring_button.dart';
 import 'dart:async';
 import '../../state/audio_state.dart';
+import '../../state/lyrics_provider.dart';
 import '../../state/translation_state.dart';
 import '../../services/translation_service.dart';
 import '../../theme/color_provider.dart';

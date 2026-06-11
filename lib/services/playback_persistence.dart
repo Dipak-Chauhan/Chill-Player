@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/song.dart';
 import 'settings_service.dart';
 
 /// Persists the last playback state (song ID, position, queue) so the app
@@ -26,6 +27,26 @@ class PlaybackPersistence {
     await prefs.setString(_lastQueueKey, jsonEncode(queueIds));
     await prefs.setInt(_lastQueueIndexKey, queueIndex);
     if (songJson != null) await prefs.setString(_lastSongJsonKey, songJson);
+  }
+
+  /// Convenience save that derives the persisted fields from the domain
+  /// objects, so callers don't have to repeat the queue-id / song-json
+  /// mapping (and can't accidentally drop the song JSON snapshot).
+  static Future<void> saveSnapshot({
+    required SharedPreferences prefs,
+    required Song song,
+    required int positionMs,
+    required List<Song> queue,
+    required int queueIndex,
+  }) {
+    return save(
+      prefs: prefs,
+      songId: song.id,
+      positionMs: positionMs,
+      queueIds: queue.map((s) => s.id).toList(),
+      queueIndex: queueIndex,
+      songJson: jsonEncode(song.toJson()),
+    );
   }
 
   /// Load the last playback state. Returns null if none saved.
