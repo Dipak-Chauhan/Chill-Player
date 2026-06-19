@@ -12,7 +12,7 @@ import '../widgets/spring_button.dart';
 import 'lyrics_screen.dart';
 import 'queue_screen.dart';
 import 'tag_editor_screen.dart';
-import '../widgets/drag_to_dismiss_wrapper.dart';
+import '../widgets/expand_player_route.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:text_scroll/text_scroll.dart';
 
@@ -153,18 +153,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       }
     });
 
-    // Estimate the vertical travel distance required to smoothly hit the mini-player
-    final screenHeight = MediaQuery.of(context).size.height;
-    final bottomNavHeight = MediaQuery.of(context).padding.bottom + 80.0;
-    final miniPlayerCenterY = screenHeight - bottomNavHeight - 12.0 - 36.0;
-    
-    // Exact same estimation logic as portrait
-    final startYEst = MediaQuery.of(context).padding.top + 16.0 + 175.0; 
-    final maxDragDistance = (miniPlayerCenterY - startYEst).clamp(200.0, 900.0);
-
-    return DragToDismissWrapper(
-        onDismissed: () => Navigator.of(context).pop(),
-        maxDragDistance: maxDragDistance,
+    return PlayerDragToDismiss(
         onDragUp: () {
           showModalBottomSheet(
             context: context,
@@ -177,38 +166,29 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             builder: (context) => QueueScreen(systemPadding: rootPadding),
           );
         },
-        builder: (context, dismissProgress) {
-          // Fully fade out background when 80% animation is done
-          final reverseProgress = (1.0 - (dismissProgress / 0.8)).clamp(0.0, 1.0);
-          return ClipRRect(
+        child: ClipRRect(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20 * reverseProgress, sigmaY: 20 * reverseProgress),
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   if (!isAmoled)
-                    Opacity(
-                      opacity: reverseProgress,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              theme.colorScheme.primaryContainer,
-                              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                              theme.colorScheme.surface,
-                            ],
-                            stops: const [0.0, 0.4, 1.0],
-                          ),
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            theme.colorScheme.primaryContainer,
+                            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                            theme.colorScheme.surface,
+                          ],
+                          stops: const [0.0, 0.4, 1.0],
                         ),
                       ),
                     ),
-                  Opacity(
-                    opacity: reverseProgress,
-                    child: Container(
-                      color: isAmoled ? Colors.black : Colors.black.withValues(alpha: 0.60),
-                    ),
+                  Container(
+                    color: isAmoled ? Colors.black : Colors.black.withValues(alpha: 0.60),
                   ),
                   Scaffold(
                     backgroundColor: Colors.transparent,
@@ -227,7 +207,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                             right: true,
                             child: isLandscape 
                                 ? _buildLandscape(context, ref, song, theme, rootPadding, constraints, isAmoled)
-                                : _buildPortrait(context, ref, song, theme, rootPadding, constraints, isAmoled, dismissProgress),
+                                : _buildPortrait(context, ref, song, theme, rootPadding, constraints, isAmoled),
                           );
                         },
                       ),
@@ -236,8 +216,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 ],
               ),
             ),
-          );
-        },
+          ),
     );
   }
 
@@ -377,6 +356,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     if (queue.isEmpty) return const SizedBox.shrink();
 
     return ConstrainedBox(
+      key: npArtKey,
       constraints: const BoxConstraints(maxHeight: 400),
       child: AspectRatio(
         aspectRatio: 1.0, // Perfect square bounds for full-width PageView cells!
@@ -450,14 +430,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       ),
                     );
                     
-                    // Only wrap the active song card in Hero if it's the visible page to prevent duplicate hero tag crashes
-                    final isVisible = (index - pageValue).abs() < 0.5;
-                    if (itemSong.id == song.id && isVisible) {
-                      return Hero(
-                        tag: 'player_art_hero',
-                        child: card,
-                      );
-                    }
+                    // Geometry is measured (npArtKey on the art area) and the
+                    // morph layer draws the interpolated artwork; no Hero here.
                     return card;
                   },
                 ),
@@ -479,6 +453,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         children: [
           TextScroll(
             song.title,
+            key: npTitleKey,
             velocity: const Velocity(pixelsPerSecond: Offset(20, 0)),
             delayBefore: const Duration(milliseconds: 2000),
             pauseBetween: const Duration(milliseconds: 2000),
@@ -491,6 +466,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           const SizedBox(height: 4),
           Text(
             song.artist,
+            key: npArtistKey,
             style: theme.textTheme.titleMedium?.copyWith(
               color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
             ),

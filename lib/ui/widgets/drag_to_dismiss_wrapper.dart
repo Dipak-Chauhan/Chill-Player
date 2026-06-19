@@ -55,14 +55,45 @@ class _DragToDismissWrapperState extends State<DragToDismissWrapper> with Single
     final targetMax = widget.maxDragDistance ?? MediaQuery.of(context).size.height;
 
     if (_dragOffset > targetMax * 0.4 || velocity > 800) {
-      _isDismissing = true;
-      widget.onDismissed();
+      _animateDismiss(targetMax);
     } else if (widget.onDragUp != null && (_dragOffset < -40 || velocity < -500)) {
       widget.onDragUp!();
       _snapBack();
     } else {
       _snapBack();
     }
+  }
+
+  /// Drives the collapse the rest of the way to [maxDist] (completing the
+  /// art/controls morph so it lands exactly on the mini-player) before popping.
+  /// This avoids the old behaviour of popping mid-drag, which left the route's
+  /// reverse transition and the Hero flight to fight over a half-finished morph.
+  void _animateDismiss(double maxDist) {
+    _isDismissing = true;
+    if (_controller.isAnimating) _controller.stop();
+
+    final startOffset = _dragOffset.clamp(0.0, maxDist);
+    final remaining = maxDist - startOffset;
+    // Scale the finishing duration to the remaining distance so the motion
+    // keeps a consistent feel whether released early or near the bottom.
+    final ms = (140 + (remaining / maxDist) * 150).round().clamp(120, 300);
+    _controller.duration = Duration(milliseconds: ms);
+
+    late final VoidCallback listener;
+    listener = () {
+      if (!mounted) return;
+      final curved = Curves.easeOutCubic.transform(_controller.value);
+      setState(() {
+        _dragOffset = startOffset + remaining * curved;
+      });
+      if (_controller.isCompleted) {
+        _controller.removeListener(listener);
+        widget.onDismissed();
+      }
+    };
+
+    _controller.addListener(listener);
+    _controller.forward(from: 0.0);
   }
 
   void _snapBack() {

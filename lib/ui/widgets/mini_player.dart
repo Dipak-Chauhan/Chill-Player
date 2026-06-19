@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../state/audio_state.dart';
 import '../screens/now_playing_screen.dart';
+import 'expand_player_route.dart';
 import 'smooth_art_widget.dart';
 import '../../services/settings_service.dart';
 import '../../services/haptic_service.dart';
@@ -21,24 +22,7 @@ class MiniPlayerHero extends ConsumerWidget {
 
     void openNowPlaying() {
       Navigator.of(context).push(
-        PageRouteBuilder(
-          transitionDuration: const Duration(milliseconds: 500),
-          reverseTransitionDuration: const Duration(milliseconds: 450),
-          opaque: false,
-          pageBuilder: (context, animation, secondaryAnimation) {
-            return const NowPlayingScreen();
-          },
-          transitionsBuilder:
-              (context, animation, secondaryAnimation, child) {
-                final curved = CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeInOutCubicEmphasized,
-                  reverseCurve: Curves.easeInOutCubicEmphasized,
-                );
-
-                return FadeTransition(opacity: curved, child: child);
-              },
-        ),
+        ExpandPlayerRoute(child: const NowPlayingScreen()),
       );
     }
 
@@ -105,18 +89,16 @@ class MiniPlayerHero extends ConsumerWidget {
                       children: [
                         const SizedBox(width: 8),
                         SizedBox(
+                          key: miniArtKey,
                           width: 56,
                           height: 56,
-                          child: Hero(
-                            tag: 'player_art_hero',
-                            child: SmoothArtWidget(
-                              id: song.id,
-                              size: 200,
-                              isMini: true,
-                              borderRadius: 32, // Morph smoothly
-                              iconSize: 24,
-                              isPlaying: isPlaying,
-                            ),
+                          child: SmoothArtWidget(
+                            id: song.id,
+                            size: 200,
+                            isMini: true,
+                            borderRadius: 32, // Morph smoothly
+                            iconSize: 24,
+                            isPlaying: isPlaying,
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -127,12 +109,14 @@ class MiniPlayerHero extends ConsumerWidget {
                             children: [
                               Text(
                                 song.title,
+                                key: miniTitleKey,
                                 style: Theme.of(context).textTheme.titleMedium,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
                                 song.artist,
+                                key: miniArtistKey,
                                 style: Theme.of(context).textTheme.bodySmall
                                     ?.copyWith(
                                       color: Theme.of(context)
