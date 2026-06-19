@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Agentic AI / Kiro config and skills
+.kiro/
+
+# Graphify knowledge graph (generated, machine-local)
+.graphify/
+graphify-out/
