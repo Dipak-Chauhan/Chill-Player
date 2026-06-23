@@ -38,7 +38,6 @@ dependencies:
   palette_generator: ^0.3.3+7
   google_fonts: ^8.0.2
   flutter_animate: ^4.5.2
-  transparent_image: ^2.0.1
   on_audio_query: ^2.9.0
   just_audio: ^0.10.5
   audio_session: ^0.2.3
@@ -56,7 +55,6 @@ dependencies:
   m3e_buttons: any
   tofu_expressive: any
   flex_color_scheme: any
-  spring: any
   material_symbols_icons: any
   animations: any
   flutter_m3shapes:

@@ -1,9 +1,11 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+
+import '../utils/query_normalizer.dart';
+import 'api_client.dart';
 
 class LrcLibApi {
   static const String _baseUrl = 'https://lrclib.net/api';
-  
+
   /// Fetches lyrics from LRCLIB. Returns synced lyrics if available,
   /// otherwise falls back to plain lyrics. Returns null if nothing is found.
   static Future<String?> fetchLyrics(
@@ -12,14 +14,14 @@ class LrcLibApi {
     Duration? duration,
   }) async {
     try {
-      final cleanedTrack = _cleanTrackName(trackName);
-      final cleanedArtist = _cleanArtistName(artistName);
+      final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
+      final cleanedArtist = LyricQueryNormalizer.cleanArtistName(artistName);
 
       final List<dynamic>? data = await _searchApi(cleanedTrack, cleanedArtist);
       if (data != null && data.isNotEmpty) {
         dynamic bestCandidate;
         int bestScore = -9999;
-        
+
         for (final item in data) {
           final candidate = item as Map<String, dynamic>;
           final score = _scoreCandidate(candidate, trackName, artistName, duration);
@@ -39,7 +41,7 @@ class LrcLibApi {
           }
         }
       }
-      
+
       // Fallback: search just by track name if strict match fails (like Rush's strategy)
       return await _fallbackSearch(trackName, artistName, duration);
 
@@ -57,15 +59,15 @@ class LrcLibApi {
     Duration? duration,
   }) async {
     try {
-      final cleanedTrack = _cleanTrackName(trackName);
-      final cleanedArtist = _cleanArtistName(artistName);
+      final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
+      final cleanedArtist = LyricQueryNormalizer.cleanArtistName(artistName);
 
       final data = await _searchApi(cleanedTrack, cleanedArtist);
       if (data == null) return null;
 
       dynamic bestCandidate;
       int bestScore = -9999;
-      
+
       for (final item in data) {
         final candidate = item as Map<String, dynamic>;
         final synced = candidate['syncedLyrics'] as String?;
@@ -92,15 +94,15 @@ class LrcLibApi {
     Duration? duration,
   }) async {
     try {
-      final cleanedTrack = _cleanTrackName(trackName);
-      final cleanedArtist = _cleanArtistName(artistName);
+      final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
+      final cleanedArtist = LyricQueryNormalizer.cleanArtistName(artistName);
 
       final data = await _searchApi(cleanedTrack, cleanedArtist);
       if (data == null) return null;
 
       dynamic bestCandidate;
       int bestScore = -9999;
-      
+
       for (final item in data) {
         final candidate = item as Map<String, dynamic>;
         final plain = candidate['plainLyrics'] as String?;
@@ -127,12 +129,7 @@ class LrcLibApi {
       'artist_name': artistName,
     });
 
-    final response = await http.get(
-      uri,
-      headers: {
-        'User-Agent': 'ChillPlayer/1.0.0 (https://github.com/chillplayer)',
-      },
-    ).timeout(const Duration(seconds: 15));
+    final response = await ApiClient.get(uri, timeout: const Duration(seconds: 15));
 
     if (response.statusCode == 200) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -147,24 +144,19 @@ class LrcLibApi {
     Duration? duration,
   ) async {
     try {
-      final cleanedTrack = _cleanTrackName(trackName);
+      final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
       final uri = Uri.parse('$_baseUrl/search').replace(queryParameters: {
         'q': cleanedTrack,
       });
 
-      final response = await http.get(
-        uri,
-        headers: {
-          'User-Agent': 'ChillPlayer/1.0.0 (https://github.com/chillplayer)',
-        },
-      ).timeout(const Duration(seconds: 15));
+      final response = await ApiClient.get(uri, timeout: const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         if (data.isNotEmpty) {
           dynamic bestCandidate;
           int bestScore = -9999;
-          
+
           for (final item in data) {
             final candidate = item as Map<String, dynamic>;
             final score = _scoreCandidate(candidate, trackName, artistName, duration);
@@ -189,45 +181,8 @@ class LrcLibApi {
   }
 
   // ---------------------------------------------------------------------------
-  // Query Normalization & Ranking Helpers
+  // Ranking Helper
   // ---------------------------------------------------------------------------
-
-  static String _cleanTrackName(String title) {
-    String t = title.toLowerCase();
-    
-    // Remove common YouTube/platform fluff
-    t = t.replaceAll(RegExp(r'\b(official\s+(video|audio|music\s+video|lyric\s+video))\b'), '');
-    t = t.replaceAll(RegExp(r'\b(lyric\s+video|music\s+video|official\s+video)\b'), '');
-    t = t.replaceAll(RegExp(r'\[\s*(official\s+(video|audio|music\s+video|lyric\s+video))\s*\]'), '');
-    t = t.replaceAll(RegExp(r'\b(remastered|deluxe\s+version|deluxe\s+edition|deluxe)\b'), '');
-    t = t.replaceAll(RegExp(r'\[\s*(remastered|deluxe)\s*\]'), '');
-    
-    // Remove "feat. ...", "ft. ...", "featuring ..." both in parentheses and brackets or bare
-    t = t.replaceAll(RegExp(r'\b(feat|ft|featuring)\b\.?\s+[\w\s\-\.\&\,]+', caseSensitive: false), '');
-    t = t.replaceAll(RegExp(r'\(\s*(feat|ft|featuring)\b\.?\s+[\w\s\-\.\&\,]+\)', caseSensitive: false), '');
-    t = t.replaceAll(RegExp(r'\[\s*(feat|ft|featuring)\b\.?\s+[\w\s\-\.\&\,]+\]', caseSensitive: false), '');
-    
-    // Clean up empty parentheses/brackets left behind
-    t = t.replaceAll(RegExp(r'\(\s*\)'), '');
-    t = t.replaceAll(RegExp(r'\[\s*\]'), '');
-    
-    return t.trim();
-  }
-
-  static String _cleanArtistName(String artist) {
-    String a = artist.toLowerCase();
-    
-    // Remove "- Topic"
-    a = a.replaceAll(RegExp(r'\b-\s*topic\b'), '');
-    
-    // Keep only the primary artist if split by slash, comma, or ampersand
-    final splitIndex = a.indexOf(RegExp(r'[\/,\&]'));
-    if (splitIndex != -1) {
-      a = a.substring(0, splitIndex);
-    }
-    
-    return a.trim();
-  }
 
   static int _scoreCandidate(
     Map<String, dynamic> candidate,
@@ -260,11 +215,11 @@ class LrcLibApi {
     }
 
     // 2. TEXT CLEANING & EXACT MATCHES
-    final String cleanCandTrack = _cleanTrackName(candTrack);
-    final String cleanTarTrack = _cleanTrackName(tarTrack);
-    
-    final String cleanCandArtist = _cleanArtistName(candArtist);
-    final String cleanTarArtist = _cleanArtistName(tarArtist);
+    final String cleanCandTrack = LyricQueryNormalizer.cleanTrackName(candTrack);
+    final String cleanTarTrack = LyricQueryNormalizer.cleanTrackName(tarTrack);
+
+    final String cleanCandArtist = LyricQueryNormalizer.cleanArtistName(candArtist);
+    final String cleanTarArtist = LyricQueryNormalizer.cleanArtistName(tarArtist);
 
     if (cleanCandTrack == cleanTarTrack) {
       score += 100;

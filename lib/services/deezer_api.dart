@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+
+import 'api_client.dart';
 
 /// Deezer API service for fetching artist artwork.
 /// Uses Deezer's free public search API — no API key required.
@@ -24,7 +25,7 @@ class DeezerApi {
         queryParameters: {'q': artistName, 'limit': '1'},
       );
 
-      final response = await http.get(uri).timeout(_timeout);
+      final response = await ApiClient.get(uri, timeout: _timeout);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -185,7 +186,7 @@ final deezerArtistImageProvider =
 
   try {
     final imgResponse =
-        await http.get(Uri.parse(imageUrl)).timeout(const Duration(seconds: 15));
+        await ApiClient.get(Uri.parse(imageUrl), timeout: const Duration(seconds: 15));
     if (imgResponse.statusCode == 200 && imgResponse.bodyBytes.isNotEmpty) {
       final bytes = imgResponse.bodyBytes;
       _MemoryArtistCache.put(key, bytes);
