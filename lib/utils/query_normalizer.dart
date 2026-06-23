@@ -43,8 +43,9 @@ class LyricQueryNormalizer {
   static String cleanArtistName(String artist) {
     String a = artist.toLowerCase();
 
-    // Remove "- Topic"
-    a = a.replaceAll(RegExp(r'\b-\s*topic\b'), '');
+    // Remove "- Topic" (YouTube auto-generated channels, e.g. "Adele - Topic").
+    // Handles spaced ("artist - topic") and unspaced ("artist-topic") dashes.
+    a = a.replaceAll(RegExp(r'\s*-\s*topic\b'), '');
 
     // Keep only the primary artist if split by slash, comma, or ampersand
     final splitIndex = a.indexOf(RegExp(r'[\/,\&]'));
