@@ -18,6 +18,7 @@ import 'package:text_scroll/text_scroll.dart';
 
 import '../widgets/smooth_art_widget.dart';
 import '../../services/settings_service.dart';
+import '../../services/artwork_cache.dart';
 import 'dart:io';
 
 class NowPlayingScreen extends ConsumerStatefulWidget {
@@ -55,6 +56,23 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         _pageNotifier.value = _pageController.page ?? 0.0;
       }
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _precacheAround(safeInitialIndex);
+    });
+  }
+
+  /// Warms the artwork cache for the songs around [index] so swiping the queue
+  /// (and next/previous) shows art instantly instead of querying mid-gesture.
+  void _precacheAround(int index) {
+    final queue = ref.read(queueProvider);
+    if (queue.isEmpty) return;
+    final ids = <int>[];
+    for (int offset = -2; offset <= 2; offset++) {
+      final i = index + offset;
+      if (i >= 0 && i < queue.length) ids.add(queue[i].id);
+    }
+    ArtworkCache.precache(ids);
   }
 
   @override
@@ -99,6 +117,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         final nextIndex = queue.indexWhere((s) => s.id == next.id);
         if (nextIndex >= 0) {
           _lastSafeIndex = nextIndex;
+          _precacheAround(nextIndex);
           if (_pageController.hasClients) {
             final currentPage = _pageController.page ?? 0.0;
             final double diff = (currentPage - nextIndex).abs();
@@ -168,7 +187,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         },
         child: ClipRRect(
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -220,25 +239,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     );
   }
 
-  Widget _buildPortrait(BuildContext context, WidgetRef ref, dynamic song, ThemeData theme, EdgeInsets rootPadding, BoxConstraints constraints, bool isAmoled, [double dismissProgress = 0.0]) {
+  Widget _buildPortrait(BuildContext context, WidgetRef ref, dynamic song, ThemeData theme, EdgeInsets rootPadding, BoxConstraints constraints, bool isAmoled) {
     final double screenHeight = MediaQuery.of(context).size.height;
-    final double screenWidth = MediaQuery.of(context).size.width;
     final double contentHeight = screenHeight > 650 ? screenHeight - 60 : 650.0;
-
-    // Controls fade out completely by 80% animation
-    final double controlsOpacity = (1.0 - (dismissProgress / 0.8)).clamp(0.0, 1.0);
-    
-    // Art scale down to mini player size (14% of max width, approx 56px)
-    final double artScale = lerpDouble(1.0, 0.14, dismissProgress)!;
-    
-    // Target X for mini player art is around 48px from left (12 margin + 8 padding + 28 center of 56px art)
-    final double targetX = 48.0;
-    final double startX = screenWidth / 2;
-    final double deltaX = targetX - startX; 
-    final double artDx = deltaX * dismissProgress;
-    
-    // Morph border radius to match mini player pill (circular)
-    final double artRadius = lerpDouble(32, 28, dismissProgress)!;
 
     return SingleChildScrollView(
       physics: const NeverScrollableScrollPhysics(),
@@ -252,7 +255,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               // Cover art PageView spans full screen width for seamless edge overflow
               Expanded(
                 child: Center(
-                  child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled, artDx, artScale, artRadius),
+                  child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled),
                 ),
               ),
               const SizedBox(height: 16),
@@ -261,32 +264,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Column(
                   children: [
-                    Opacity(
-                      opacity: controlsOpacity,
-                      child: _buildTitleBlock(ref, song, theme),
-                    ),
+                    _buildTitleBlock(ref, song, theme),
                     const SizedBox(height: 16),
-                    Opacity(
-                      opacity: controlsOpacity,
-                      child: const SquigglySeekbar(),
-                    ),
+                    const SquigglySeekbar(),
                     const SizedBox(height: 24),
-                    Opacity(
-                      opacity: controlsOpacity,
-                      child: _buildMainControls(ref, theme, isLandscape: false),
-                    ),
+                    _buildMainControls(ref, theme, isLandscape: false),
                     const SizedBox(height: 24),
                     if (ref.watch(showVolumeSliderProvider)) ...[
-                      Opacity(
-                        opacity: controlsOpacity,
-                        child: _buildVolumeSlider(ref, theme),
-                      ),
+                      _buildVolumeSlider(ref, theme),
                       const SizedBox(height: 16),
                     ],
-                    Opacity(
-                      opacity: controlsOpacity,
-                      child: _buildBottomTools(context, ref, song, theme, rootPadding),
-                    ),
+                    _buildBottomTools(context, ref, song, theme, rootPadding),
                   ],
                 ),
               ),
@@ -307,7 +295,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           Expanded(
             flex: 4,
             child: Center(
-              child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled, 0.0, 1.0, 32.0),
+              child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled),
             ),
           ),
           const SizedBox(width: 48),
@@ -348,94 +336,82 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     dynamic song, 
     ThemeData theme, 
     bool isAmoled, 
-    double artDx, 
-    double artScale, 
-    double artRadius,
   ) {
     final queue = ref.watch(queueProvider);
     if (queue.isEmpty) return const SizedBox.shrink();
+    final isPlaying = ref.watch(isPlayingProvider);
+
+    const double artRadius = 32.0;
 
     return ConstrainedBox(
       key: npArtKey,
       constraints: const BoxConstraints(maxHeight: 400),
       child: AspectRatio(
-        aspectRatio: 1.0, // Perfect square bounds for full-width PageView cells!
-        child: ValueListenableBuilder<double>(
-          valueListenable: _pageNotifier,
-          builder: (context, pageValue, child) {
-            return Transform.translate(
-              offset: Offset(artDx, 0),
-              child: Transform.scale(
-                scale: artScale,
-                child: PageView.builder(
-                  key: const ValueKey('now_playing_page_view'),
-                  controller: _pageController,
-                  itemCount: queue.length,
-                  physics: const BouncingScrollPhysics(parent: PageScrollPhysics()), // Snaps to pages perfectly with gorgeous physics!
-                  onPageChanged: (newIndex) {
-                    if (!_isProgrammaticScroll) {
-                      final player = ref.read(audioPlayerProvider);
-                      if (player.currentIndex != newIndex) {
-                        player.seek(Duration.zero, index: newIndex);
-                        HapticService.medium();
-                      }
-                    }
-                  },
-                  itemBuilder: (context, index) {
-                    if (index < 0 || index >= queue.length) return const SizedBox.shrink();
-                    final queueSong = queue[index];
-                    
-                    // Render the currently playing song at its old index during the transitional
-                    // frame of a queue reorder or shuffle. This prevents the wrong artwork from
-                    // rendering for even a single frame while the PageView is waiting to jump to its new index.
-                    final itemSong = (_isReorderOrShuffle && index == _lastSafeIndex) ? song : queueSong;
-                    final isPlaying = ref.watch(isPlayingProvider);
-                    
-                    // Calculate deviation of this page from the currently visible center
-                    final difference = index - pageValue;
-                    
-                    // Smooth, elegant visual scaling and fading transitions during drag
-                    final double scale = (1.0 - (difference.abs() * 0.08)).clamp(0.8, 1.0);
-                    final double opacity = (1.0 - (difference.abs() * 0.6)).clamp(0.0, 1.0);
-                    
-                    // Apply play/pause soft-pulsing scale to the active card only
-                    final isActive = difference.abs() < 0.5;
-                    final double activePlayScale = isActive ? (isPlaying ? 1.0 : 0.95) : 1.0;
-                    
-                    final card = Opacity(
-                      opacity: opacity,
-                      child: Transform.scale(
-                        scale: scale * activePlayScale,
-                        child: Center(
-                          child: AspectRatio(
-                            aspectRatio: 1.0, // Force a perfect premium square!
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(artRadius),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(artRadius),
-                                child: SmoothArtWidget(
-                                  id: itemSong.id,
-                                  size: 800,
-                                  borderRadius: artRadius,
-                                  iconSize: 80,
-                                  isPlaying: isPlaying && isActive,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                    
-                    // Geometry is measured (npArtKey on the art area) and the
-                    // morph layer draws the interpolated artwork; no Hero here.
-                    return card;
-                  },
+        aspectRatio: 1.0,
+        child: PageView.builder(
+          key: const ValueKey('now_playing_page_view'),
+          controller: _pageController,
+          itemCount: queue.length,
+          physics: const BouncingScrollPhysics(parent: PageScrollPhysics()),
+          onPageChanged: (newIndex) {
+            _precacheAround(newIndex);
+            if (!_isProgrammaticScroll) {
+              final player = ref.read(audioPlayerProvider);
+              if (player.currentIndex != newIndex) {
+                player.seek(Duration.zero, index: newIndex);
+                HapticService.medium();
+              }
+            }
+          },
+          itemBuilder: (context, index) {
+            if (index < 0 || index >= queue.length) return const SizedBox.shrink();
+            final queueSong = queue[index];
+            // Keep the playing song's art correct during a reorder/shuffle jump.
+            final itemSong = (_isReorderOrShuffle && index == _lastSafeIndex) ? song : queueSong;
+
+            // Built once per item; only the transform below updates per frame.
+            final card = Center(
+              child: AspectRatio(
+                aspectRatio: 1.0,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(artRadius),
+                    child: SmoothArtWidget(
+                      id: itemSong.id,
+                      size: 600,
+                      borderRadius: artRadius,
+                      iconSize: 80,
+                      isPlaying: isPlaying,
+                    ),
+                  ),
                 ),
               ),
+            );
+
+            // Parallax scale/opacity from scroll position. AnimatedBuilder
+            // rebuilds only this transform per frame, not the whole PageView
+            // (or the artwork), which keeps swiping smooth.
+            return AnimatedBuilder(
+              animation: _pageController,
+              child: card,
+              builder: (context, child) {
+                double page;
+                if (_pageController.hasClients && _pageController.position.haveDimensions) {
+                  page = _pageController.page ?? index.toDouble();
+                } else {
+                  page = (_lastSafeIndex ?? index).toDouble();
+                }
+                final difference = index - page;
+                final double scale = (1.0 - (difference.abs() * 0.08)).clamp(0.8, 1.0);
+                final double opacity = (1.0 - (difference.abs() * 0.6)).clamp(0.0, 1.0);
+                final bool isActive = difference.abs() < 0.5;
+                final double activePlayScale = isActive ? (isPlaying ? 1.0 : 0.95) : 1.0;
+                return Opacity(
+                  opacity: opacity,
+                  child: Transform.scale(scale: scale * activePlayScale, child: child),
+                );
+              },
             );
           },
         ),

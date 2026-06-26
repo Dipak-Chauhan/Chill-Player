@@ -16,12 +16,14 @@ class SquigglySeekbar extends ConsumerStatefulWidget {
 class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerProviderStateMixin {
   late AnimationController _waveController;
   late AnimationController _interactionController;
+  late AnimationController _amplitudeController;
   late AnimationController _progressController;
   bool _showRemainingTime = false;
   int _lastTickedPercent = -1;
   bool _isDragging = false;
   double _dragProgress = 0.0;
   int? _currentSongId;
+  bool? _wasPlaying;
 
   @override
   void initState() {
@@ -31,11 +33,18 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
       duration: const Duration(seconds: 2),
     )..repeat();
     
-    // 1.0 means unpressed (full amplitude, thin thumb)
-    // 0.0 means pressed (flat wave, fat thumb)
+    // Handle morph: 1.0 = idle (thin pill), 0.0 = scrubbing (round handle).
     _interactionController = AnimationController.unbounded(
       vsync: this,
       value: 1.0,
+    );
+
+    // Wave amplitude: 1.0 = wavy (playing), 0.0 = flat (paused or scrubbing).
+    final bool playing = ref.read(isPlayingProvider);
+    _wasPlaying = playing;
+    _amplitudeController = AnimationController.unbounded(
+      vsync: this,
+      value: playing ? 1.0 : 0.0,
     );
 
     _progressController = AnimationController(
@@ -54,10 +63,21 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
     _interactionController.animateWith(simulation);
   }
 
+  void _animateAmplitude(double target) {
+    final simulation = SpringSimulation(
+      const SpringDescription(mass: 1.0, stiffness: 300.0, damping: 26.0),
+      _amplitudeController.value,
+      target,
+      _amplitudeController.velocity,
+    );
+    _amplitudeController.animateWith(simulation);
+  }
+
   @override
   void dispose() {
     _waveController.dispose();
     _interactionController.dispose();
+    _amplitudeController.dispose();
     _progressController.dispose();
     super.dispose();
   }
@@ -102,6 +122,13 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
       _waveController.repeat();
     }
 
+    // Flatten the wave when paused, restore it when playing (Material 3
+    // expressive behaviour). The handle morph is unaffected by play state.
+    if (!_isDragging && _wasPlaying != isPlaying) {
+      _wasPlaying = isPlaying;
+      _animateAmplitude(isPlaying ? 1.0 : 0.0);
+    }
+
     final theme = Theme.of(context);
     final textStyle = theme.textTheme.labelLarge?.copyWith(
       color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.8),
@@ -144,7 +171,8 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                       setState(() {
                         _isDragging = true;
                       });
-                      _animateInteraction(0.0); // animate to flat and fat thumb
+                      _animateInteraction(0.0); // grow handle
+                      _animateAmplitude(0.0); // flatten while scrubbing
                       HapticService.light();
                       seekToLocal(details.localPosition);
                     },
@@ -156,7 +184,8 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                       setState(() {
                         _isDragging = false;
                       });
-                      _animateInteraction(1.0); // animate to squiggly and thin thumb
+                      _animateInteraction(1.0); // shrink handle back to pill
+                      _animateAmplitude(isPlaying ? 1.0 : 0.0); // wavy only if playing
                       _lastTickedPercent = -1;
                     },
                     onPanCancel: () {
@@ -167,10 +196,11 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                         _isDragging = false;
                       });
                       _animateInteraction(1.0);
+                      _animateAmplitude(isPlaying ? 1.0 : 0.0);
                       _lastTickedPercent = -1;
                     },
                     child: AnimatedBuilder(
-                      animation: Listenable.merge([_waveController, _interactionController, _progressController]),
+                      animation: Listenable.merge([_waveController, _interactionController, _amplitudeController, _progressController]),
                       builder: (context, child) {
                         return CustomPaint(
                           size: const Size(double.infinity, 40),
@@ -178,6 +208,7 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                             progress: _progressController.value,
                             wavePhase: _waveController.value * 2 * math.pi * 1.0, // Perfect harmonic phase loop continuity
                             interactionValue: _interactionController.value,
+                            amplitudeValue: _amplitudeController.value,
                             color: theme.colorScheme.primary,
                             backgroundColor: theme.colorScheme.surfaceContainerHighest,
                           ),
@@ -217,6 +248,7 @@ class _SquigglyPainter extends CustomPainter {
   final double progress;
   final double wavePhase;
   final double interactionValue;
+  final double amplitudeValue;
   final Color color;
   final Color backgroundColor;
 
@@ -224,118 +256,101 @@ class _SquigglyPainter extends CustomPainter {
     required this.progress,
     required this.wavePhase,
     required this.interactionValue,
+    required this.amplitudeValue,
     required this.color,
     required this.backgroundColor,
   });
 
+  // Material 3 wavy linear progress indicator spec.
+  static const double _trackStroke = 4.0; // active + inactive track thickness
+  static const double _waveAmplitude = 3.0; // peak wave height from centre
+  static const double _wavelength = 40.0; // determinate wavelength
+  static const double _trackGap = 6.0; // gap between active/inactive and handle
+  static const double _startRamp = 8.0; // wave eases up from the left edge
+
   @override
   void paint(Canvas canvas, Size size) {
-    // 1.0 = full wave, 0.0 = flat
-    final amplitude = 4.0 * interactionValue;
-    // Material 3 exact wavelength constraint
-    final wavelength = 40.0;
-    
-    final bgPaint = Paint()
+    final double centerY = size.height / 2;
+    final double handleX = (size.width * progress).clamp(0.0, size.width);
+    // Wave amplitude is driven only by play/scrub state, not the handle.
+    final double amplitude = _waveAmplitude * amplitudeValue.clamp(0.0, 1.0);
+
+    final Paint inactivePaint = Paint()
       ..color = backgroundColor
-      ..strokeWidth = 3.0
+      ..strokeWidth = _trackStroke
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
-    final activePaint = Paint()
+    final Paint activePaint = Paint()
       ..color = color
-      ..strokeWidth = ui.lerpDouble(8.0, 4.0, interactionValue)! // Slightly thicker line when flat
+      ..strokeWidth = _trackStroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..style = PaintingStyle.stroke;
 
-    final thumbPaint = Paint()
+    final Paint handlePaint = Paint()
       ..color = color
       ..style = PaintingStyle.fill;
 
-    final activeWidth = size.width * progress;
-
-    // Draw background (straight line)
-    // We start slightly inside the active length so the rounded cap doesn't poke out from under the thumb
-    if (size.width - activeWidth > 0) {
+    // Inactive track: straight line from after the handle to the end.
+    final double inactiveStart = (handleX + _trackGap).clamp(0.0, size.width);
+    final double inactiveEnd = size.width - _trackStroke / 2;
+    if (inactiveEnd > inactiveStart) {
       canvas.drawLine(
-        Offset(activeWidth + 4, size.height / 2),
-        Offset(size.width, size.height / 2),
-        bgPaint,
+        Offset(inactiveStart, centerY),
+        Offset(inactiveEnd, centerY),
+        inactivePaint,
       );
     }
 
-    // Draw active path (squiggly or mostly flat if interactionValue ~ 0)
-    final path = Path();
-    
-    if (activeWidth > 0 && interactionValue > 0.01) {
-      path.moveTo(0, size.height / 2);
-      
-      // Step size for drawing sine wave (smaller = smoother)
-      final step = 1.0; 
-      
-      for (double x = 0; x <= activeWidth; x += step) {
-        // Dampen the wave right near the thumb so it meets the center perfectly
-        final distanceToThumb = activeWidth - x;
-        double thumbDamping = 1.0;
-        final dampingZone = 32.0;
-        
-        if (distanceToThumb < dampingZone) {
-          // Smooth cubic interpolation (smoothstep) for a flawless blend into the thumb
-          final t = distanceToThumb / dampingZone;
-          thumbDamping = t * t * (3 - 2 * t);
+    // Active track: wavy line from the left edge, connected right up to the handle.
+    final double waveEnd = handleX;
+    if (waveEnd > 0) {
+      if (amplitude < 0.05) {
+        canvas.drawLine(Offset(0, centerY), Offset(waveEnd, centerY), activePaint);
+      } else {
+        final path = Path();
+        const double step = 1.0;
+        path.moveTo(0, centerY);
+        for (double x = 0; x <= waveEnd; x += step) {
+          // Ease the wave up from flat over the first few px so it emanates
+          // cleanly from the left edge.
+          double ramp = 1.0;
+          if (x < _startRamp) {
+            final double t = x / _startRamp;
+            ramp = t * t * (3 - 2 * t); // smoothstep
+          }
+          final double y = centerY +
+              math.sin((x / (_wavelength / (2 * math.pi))) + wavePhase) * amplitude * ramp;
+          path.lineTo(x, y);
         }
-
-        // Dampen the wave at the very start (left side) so it emanates from the center
-        double startDamping = 1.0;
-        final startZone = 24.0;
-        if (x < startZone) {
-          final t = x / startZone;
-          startDamping = t * t * (3 - 2 * t);
-        }
-
-        final totalDamping = thumbDamping * startDamping;
-
-        // Add phase. Using x + phase to flow leftwards
-        final y = size.height / 2 + math.sin((x / (wavelength / (2 * math.pi))) + wavePhase) * amplitude * totalDamping;
-        
-        // If it's very close to thumb, literally just flatline it into the center to avoid math imprecision
-        if (distanceToThumb <= step) {
-           path.lineTo(activeWidth, size.height / 2);
-           break;
-        } else {
-           path.lineTo(x, y);
-        }
+        canvas.drawPath(path, activePaint);
       }
-      canvas.drawPath(path, activePaint);
-    } else if (activeWidth > 0) {
-      // Very close to 0 amplitude, just draw a flat line
-      canvas.drawLine(Offset(0, size.height / 2), Offset(activeWidth, size.height / 2), activePaint);
     }
 
-    // Draw physics morphing thumb
-    // Unpressed (1.0): 6x24 pill
-    // Pressed (0.0): 24x24 circle
-    final thumbHeight = 24.0;
-    final thumbWidth = ui.lerpDouble(24.0, 6.0, interactionValue)!;
-    final thumbRadius = ui.lerpDouble(12.0, 3.0, interactionValue)!;
+    // Handle: thin vertical pill at rest, growing to a circle while scrubbing.
+    final double handleHeight = 22.0;
+    final double handleWidth = ui.lerpDouble(22.0, 4.0, interactionValue)!;
+    final double handleRadius = ui.lerpDouble(11.0, 2.0, interactionValue)!;
 
-    final thumbRect = RRect.fromRectAndRadius(
+    final RRect handleRect = RRect.fromRectAndRadius(
       Rect.fromCenter(
-        center: Offset(activeWidth, size.height / 2),
-        width: thumbWidth,
-        height: thumbHeight,
+        center: Offset(handleX, centerY),
+        width: handleWidth,
+        height: handleHeight,
       ),
-      Radius.circular(thumbRadius),
+      Radius.circular(handleRadius),
     );
-    canvas.drawRRect(thumbRect, thumbPaint);
+    canvas.drawRRect(handleRect, handlePaint);
   }
 
   @override
   bool shouldRepaint(covariant _SquigglyPainter oldDelegate) {
-    return oldDelegate.progress != progress || 
-           oldDelegate.wavePhase != wavePhase ||
-           oldDelegate.interactionValue != interactionValue ||
-           oldDelegate.color != color ||
-           oldDelegate.backgroundColor != backgroundColor;
+    return oldDelegate.progress != progress ||
+        oldDelegate.wavePhase != wavePhase ||
+        oldDelegate.interactionValue != interactionValue ||
+        oldDelegate.amplitudeValue != amplitudeValue ||
+        oldDelegate.color != color ||
+        oldDelegate.backgroundColor != backgroundColor;
   }
 }

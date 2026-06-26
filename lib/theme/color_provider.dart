@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:on_audio_query/on_audio_query.dart';
+import '../services/artwork_cache.dart';
 
 class ExtractedColors {
   final Color dominant;
@@ -85,116 +85,156 @@ final currentExtractedColorsProvider = NotifierProvider<ExtractedColorsNotifier,
 class ColorExtractor {
   static int? _lastExtractedId;
 
+  /// Colors are computed once per song and reused everywhere, so the theme is
+  /// instant and consistent across the app.
+  static final Map<int, ExtractedColors> _cache = {};
+
   static void extractColors(WidgetRef ref, int songId) {
     if (_lastExtractedId == songId) return;
+
+    final cached = _cache[songId];
+    if (cached != null) {
+      _lastExtractedId = songId;
+      ref.read(currentExtractedColorsProvider.notifier).updateColors(cached);
+      return;
+    }
     _doExtract(ref, songId);
   }
 
   static Future<void> extractFromBytes(WidgetRef ref, int songId, Uint8List bytes) async {
     if (_lastExtractedId == songId) return;
     _lastExtractedId = songId;
-    await _generateAndApply(ref, bytes);
+    final colors = await FastColorExtractor.extract(bytes);
+    _cache[songId] = colors;
+    ref.read(currentExtractedColorsProvider.notifier).updateColors(colors);
   }
 
   static Future<void> _doExtract(WidgetRef ref, int songId) async {
     try {
       _lastExtractedId = songId;
-      final artworkBytes = await OnAudioQuery().queryArtwork(songId, ArtworkType.AUDIO, size: 100);
+      // Reuse the shared artwork cache instead of a separate device query.
+      final artworkBytes = await ArtworkCache.load(songId);
       if (artworkBytes == null) {
         ref.read(currentExtractedColorsProvider.notifier).updateColors(ExtractedColors.defaultColors);
         return;
       }
-      await _generateAndApply(ref, artworkBytes);
+      final colors = await FastColorExtractor.extract(artworkBytes);
+      _cache[songId] = colors;
+      // Guard against a newer song having been requested meanwhile.
+      if (_lastExtractedId == songId) {
+        ref.read(currentExtractedColorsProvider.notifier).updateColors(colors);
+      }
     } catch (e) {
       debugPrint('Error extracting colors: $e');
       ref.read(currentExtractedColorsProvider.notifier).updateColors(ExtractedColors.defaultColors);
     }
   }
-
-  static Future<void> _generateAndApply(WidgetRef ref, Uint8List artworkBytes) async {
-    final colors = await FastColorExtractor.extract(artworkBytes);
-    ref.read(currentExtractedColorsProvider.notifier).updateColors(colors);
-  }
 }
 
 class FastColorExtractor {
+  /// Extracts a prominent, vibrant seed color from artwork bytes.
+  ///
+  /// Decodes a small 48x48 sample (cheap), then builds a histogram of quantized
+  /// colors weighted by vibrancy. The winning bucket is the color that is both
+  /// frequent and colorful, averaged for a clean result — far more accurate
+  /// than picking a single outlier pixel from an 8x8 grid.
   static Future<ExtractedColors> extract(Uint8List bytes) async {
     try {
-      // 1. Natively downsample the image bytes to a tiny 8x8 grid in C++
       final codec = await ui.instantiateImageCodec(
         bytes,
-        targetWidth: 8,
-        targetHeight: 8,
+        targetWidth: 48,
+        targetHeight: 48,
         allowUpscaling: false,
       );
       final frame = await codec.getNextFrame();
       final image = frame.image;
       final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      image.dispose(); // Instantly free native resource to prevent any GPU memory leak
-      
+      image.dispose();
+
       if (byteData == null) return ExtractedColors.defaultColors;
       final pixels = byteData.buffer.asUint8List();
-      
-      double maxScore = -1.0;
-      Color bestColor = ExtractedColors.defaultColors.dominant;
-      
-      double totalR = 0;
-      double totalG = 0;
-      double totalB = 0;
-      int validPixelCount = 0;
 
-      // 2. Loop over the 64 pixels to score their color vibrancy and lightness
+      // key -> [count, sumR, sumG, sumB, scoreSum]
+      final Map<int, List<double>> buckets = {};
+      double totalR = 0, totalG = 0, totalB = 0;
+      int validCount = 0;
+      double bestVibrantScore = -1.0;
+      Color vibrant = ExtractedColors.defaultColors.vibrant;
+
       for (int i = 0; i < pixels.length; i += 4) {
         final r = pixels[i];
         final g = pixels[i + 1];
         final b = pixels[i + 2];
         final a = pixels[i + 3];
-        
-        if (a < 128) continue; // Ignore transparent pixels
-        
+        if (a < 128) continue;
+
         totalR += r;
         totalG += g;
         totalB += b;
-        validPixelCount++;
-        
-        final color = Color.fromARGB(255, r, g, b);
-        final hsl = HSLColor.fromColor(color);
-        
-        // Exclude dull shades (grey, black, white) for dynamic theme seed matching
+        validCount++;
+
+        final hsl = HSLColor.fromColor(Color.fromARGB(255, r, g, b));
+        // Skip near-grey / near-black / near-white for seed selection.
         if (hsl.saturation < 0.15 || hsl.lightness < 0.12 || hsl.lightness > 0.88) {
           continue;
         }
-        
-        // High scores are given to highly-saturated, centered-lightness colors
+
         final lightnessScore = 1.0 - (hsl.lightness - 0.5).abs() * 2.0;
         final score = hsl.saturation * lightnessScore;
-        
-        if (score > maxScore) {
-          maxScore = score;
-          bestColor = color;
+
+        // Quantize to 4 bits per channel so similar colors group together.
+        final key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+        final bucket = buckets.putIfAbsent(key, () => [0, 0, 0, 0, 0]);
+        bucket[0] += 1;
+        bucket[1] += r;
+        bucket[2] += g;
+        bucket[3] += b;
+        bucket[4] += score;
+
+        if (score > bestVibrantScore) {
+          bestVibrantScore = score;
+          vibrant = Color.fromARGB(255, r, g, b);
         }
       }
-      
-      Color dominantColor;
-      if (validPixelCount > 0 && maxScore < 0.0) {
-        // Fallback: use average color if no colorful pixels were found
-        final avgR = (totalR / validPixelCount).round();
-        final avgG = (totalG / validPixelCount).round();
-        final avgB = (totalB / validPixelCount).round();
-        dominantColor = Color.fromARGB(255, avgR, avgG, avgB);
-        bestColor = dominantColor;
+
+      Color dominant;
+      if (buckets.isEmpty) {
+        if (validCount == 0) return ExtractedColors.defaultColors;
+        dominant = Color.fromARGB(
+          255,
+          (totalR / validCount).round(),
+          (totalG / validCount).round(),
+          (totalB / validCount).round(),
+        );
+        vibrant = dominant;
       } else {
-        dominantColor = bestColor;
+        // Bucket with the highest summed vibrancy = prominent AND colorful.
+        List<double>? best;
+        for (final bucket in buckets.values) {
+          if (best == null || bucket[4] > best[4]) best = bucket;
+        }
+        final count = best![0];
+        dominant = Color.fromARGB(
+          255,
+          (best[1] / count).round(),
+          (best[2] / count).round(),
+          (best[3] / count).round(),
+        );
       }
-      
-      // 3. Derive gorgeous complementary palette levels instantly using HSL shifts
-      final hslDominant = HSLColor.fromColor(dominantColor);
-      final muted = hslDominant.withSaturation((hslDominant.saturation * 0.5).clamp(0.15, 0.4)).withLightness(0.3).toColor();
-      final darkVibrant = hslDominant.withSaturation((hslDominant.saturation * 1.2).clamp(0.3, 0.9)).withLightness(0.15).toColor();
-      
+
+      final hslDominant = HSLColor.fromColor(dominant);
+      final muted = hslDominant
+          .withSaturation((hslDominant.saturation * 0.5).clamp(0.15, 0.4))
+          .withLightness(0.3)
+          .toColor();
+      final darkVibrant = hslDominant
+          .withSaturation((hslDominant.saturation * 1.2).clamp(0.3, 0.9))
+          .withLightness(0.15)
+          .toColor();
+
       return ExtractedColors(
-        dominant: dominantColor,
-        vibrant: bestColor,
+        dominant: dominant,
+        vibrant: vibrant,
         muted: muted,
         darkVibrant: darkVibrant,
       );
