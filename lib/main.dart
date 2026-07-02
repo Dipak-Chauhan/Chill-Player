@@ -16,6 +16,9 @@ import 'services/audio_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Keep more decoded artwork resident so fast library scrolling stays smooth.
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 150 << 20; // 150 MB
   
   final audioHandler = await AudioService.init(
     builder: () => ChillAudioHandler(),

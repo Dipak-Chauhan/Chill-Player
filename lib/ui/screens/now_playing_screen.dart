@@ -72,7 +72,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
       final i = index + offset;
       if (i >= 0 && i < queue.length) ids.add(queue[i].id);
     }
-    ArtworkCache.precache(ids);
+    ArtworkCache.precache(ids, full: true);
   }
 
   @override

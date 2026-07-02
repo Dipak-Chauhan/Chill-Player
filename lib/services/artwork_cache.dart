@@ -4,78 +4,55 @@ import 'package:flutter/foundation.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// App-wide artwork cache keyed by song id.
-///
-/// Each song's artwork is read from the device once (a slow native MediaStore
-/// call) at a canonical resolution, then served instantly from memory and
-/// persisted to disk across launches. Every widget shares the same cached
-/// bytes, so artwork appears instantly throughout the app and swiping the
-/// queue no longer triggers a fresh device query mid-gesture.
-class ArtworkCache {
-  ArtworkCache._();
+/// One cache tier (a resolution). Holds an LRU of raw bytes keyed by song id,
+/// backed by disk, with concurrent-request de-duplication.
+class _ArtStore {
+  _ArtStore({required this.querySize, required this.suffix, required this.maxEntries});
 
-  /// Single resolution fetched from the device. Small widgets downscale on the
-  /// GPU; full-screen art stays acceptably crisp on phones.
-  static const int canonicalSize = 600;
+  final int querySize;
+  final String suffix; // disk filename suffix
+  final int maxEntries;
 
-  static const int _maxMemEntries = 800;
-  static final LinkedHashMap<int, Uint8List?> _mem = LinkedHashMap<int, Uint8List?>();
-  static final Map<int, Future<Uint8List?>> _inflight = {};
-  static Directory? _dir;
+  final LinkedHashMap<int, Uint8List?> _mem = LinkedHashMap<int, Uint8List?>();
+  final Map<int, Future<Uint8List?>> _inflight = {};
 
-  // Background warm-up queue (e.g. the whole library) processed at limited
-  // concurrency so scrolling finds artwork already in memory.
-  static final Queue<int> _warmQueue = Queue<int>();
-  static final Set<int> _warmQueued = {};
-  static bool _warming = false;
-  static ArtworkType _warmType = ArtworkType.AUDIO;
-
-  /// Returns cached bytes synchronously if present in memory, else null.
-  static Uint8List? peek(int id) {
+  Uint8List? peek(int id) {
     if (!_mem.containsKey(id)) return null;
     final v = _mem.remove(id);
     _mem[id] = v; // LRU touch
     return v;
   }
 
-  /// Whether [id] has been resolved (value may be null if the song has no art).
-  static bool contains(int id) => _mem.containsKey(id);
+  bool contains(int id) => _mem.containsKey(id);
+  int get count => _mem.length;
 
-  static void _put(int id, Uint8List? bytes) {
+  void clear() {
+    _mem.clear();
+    _inflight.clear();
+  }
+
+  void put(int id, Uint8List? bytes) {
     _mem.remove(id);
-    if (_mem.length >= _maxMemEntries) {
-      _mem.remove(_mem.keys.first);
-    }
+    if (_mem.length >= maxEntries) _mem.remove(_mem.keys.first);
     _mem[id] = bytes;
   }
 
-  static Future<Directory> _cacheDir() async {
-    if (_dir != null) return _dir!;
-    final base = await getApplicationCacheDirectory();
-    final d = Directory('${base.path}/artwork_cache');
-    if (!await d.exists()) await d.create(recursive: true);
-    _dir = d;
-    return d;
-  }
-
-  /// Resolves artwork for [id] (memory -> disk -> device). Concurrent requests
-  /// for the same id share one in-flight future. Cached for future calls.
-  static Future<Uint8List?> load(int id, {ArtworkType type = ArtworkType.AUDIO}) {
+  Future<Uint8List?> load(int id, ArtworkType type, Future<Directory> Function() dir) {
     if (_mem.containsKey(id)) return Future.value(peek(id));
     final existing = _inflight[id];
     if (existing != null) return existing;
-    final future = _fetch(id, type);
+    final future = _fetch(id, type, dir);
     _inflight[id] = future;
     return future.whenComplete(() => _inflight.remove(id));
   }
 
-  static Future<Uint8List?> _fetch(int id, ArtworkType type) async {
+  Future<Uint8List?> _fetch(int id, ArtworkType type, Future<Directory> Function() dir) async {
     try {
-      final dir = await _cacheDir();
-      final file = File('${dir.path}/$id.img');
+      final d = await dir();
+      final file = File('${d.path}/$id.$suffix');
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
-        _put(id, bytes);
+        put(id, bytes);
         return bytes;
       }
     } catch (_) {}
@@ -85,41 +62,79 @@ class ArtworkCache {
       art = await OnAudioQuery().queryArtwork(
         id,
         type,
-        size: canonicalSize,
-        quality: 100,
+        size: querySize,
+        quality: 85,
         format: ArtworkFormat.JPEG,
       );
     } catch (_) {}
 
-    _put(id, art);
+    put(id, art);
     if (art != null) {
       final bytes = art;
-      _cacheDir().then((dir) {
-        File('${dir.path}/$id.img').writeAsBytes(bytes, flush: false).catchError((_) => File('${dir.path}/$id.img'));
+      dir().then((d) {
+        final path = '${d.path}/$id.$suffix';
+        File(path).writeAsBytes(bytes, flush: false).catchError((_) => File(path));
       }).catchError((_) {});
     }
     return art;
   }
+}
 
-  /// Warms the cache for several ids (e.g. queue neighbours) immediately.
-  /// Fire-and-forget; skips ids already cached or being fetched.
-  static void precache(Iterable<int> ids, {ArtworkType type = ArtworkType.AUDIO}) {
+/// App-wide artwork cache with two resolution tiers:
+///
+/// * **thumbnail** ([thumbSize]) for lists, the mini-player and grids — small
+///   and fast so fast scrolling stays instant.
+/// * **full** ([fullSize]) for the Now Playing / detail screens.
+///
+/// Each song's artwork is read from the device once per tier, cached in memory
+/// (LRU) and on disk. The whole library's thumbnails are warmed in the
+/// background on load so scrolling never waits on a device query.
+class ArtworkCache {
+  ArtworkCache._();
+
+  static const int thumbSize = 256;
+  static const int fullSize = 720;
+
+  static final _ArtStore _thumbs = _ArtStore(querySize: thumbSize, suffix: 't', maxEntries: 600);
+  static final _ArtStore _fulls = _ArtStore(querySize: fullSize, suffix: 'f', maxEntries: 60);
+
+  static _ArtStore _store(bool full) => full ? _fulls : _thumbs;
+
+  static Directory? _dir;
+  static Future<Directory> _cacheDir() async {
+    if (_dir != null) return _dir!;
+    final base = await getApplicationCacheDirectory();
+    final d = Directory('${base.path}/artwork_cache');
+    if (!await d.exists()) await d.create(recursive: true);
+    _dir = d;
+    return d;
+  }
+
+  static Uint8List? peek(int id, {bool full = false}) => _store(full).peek(id);
+  static bool contains(int id, {bool full = false}) => _store(full).contains(id);
+
+  static Future<Uint8List?> load(int id, {bool full = false, ArtworkType type = ArtworkType.AUDIO}) =>
+      _store(full).load(id, type, _cacheDir);
+
+  /// Immediate prefetch for a small set (e.g. queue neighbours).
+  static void precache(Iterable<int> ids, {bool full = false, ArtworkType type = ArtworkType.AUDIO}) {
+    final store = _store(full);
     for (final id in ids) {
-      if (!_mem.containsKey(id) && !_inflight.containsKey(id)) {
-        load(id, type: type);
-      }
+      if (!store.contains(id)) load(id, full: full, type: type);
     }
   }
 
-  /// Background warm-up for a large set (e.g. the whole library) so fast
-  /// scrolling finds artwork already resolved. Processed at limited concurrency
-  /// and yields between batches so it never blocks the UI.
+  // Background thumbnail warm-up (e.g. the whole library), throttled so it
+  // never blocks the UI.
+  static final Queue<int> _warmQueue = Queue<int>();
+  static final Set<int> _warmQueued = {};
+  static bool _warming = false;
+  static ArtworkType _warmType = ArtworkType.AUDIO;
+
   static void warm(Iterable<int> ids, {ArtworkType type = ArtworkType.AUDIO}) {
     _warmType = type;
     for (final id in ids) {
-      if (!_mem.containsKey(id) && !_inflight.containsKey(id) && _warmQueued.add(id)) {
-        _warmQueue.add(id);
-      }
+      if (!_thumbs.contains(id) && _warmQueued.add(id)) _warmQueue.add(id);
     }
     _pumpWarm();
   }
@@ -127,13 +142,13 @@ class ArtworkCache {
   static Future<void> _pumpWarm() async {
     if (_warming) return;
     _warming = true;
-    const int concurrency = 6;
+    const int concurrency = 8;
     while (_warmQueue.isNotEmpty) {
       final futures = <Future<void>>[];
       for (int i = 0; i < concurrency && _warmQueue.isNotEmpty; i++) {
         final id = _warmQueue.removeFirst();
         _warmQueued.remove(id);
-        if (_mem.containsKey(id)) continue;
+        if (_thumbs.contains(id)) continue;
         futures.add(load(id, type: _warmType).then((_) {}));
       }
       if (futures.isNotEmpty) await Future.wait(futures);
@@ -143,18 +158,15 @@ class ArtworkCache {
   }
 
   @visibleForTesting
-  static int get maxMemEntries => _maxMemEntries;
-
+  static int get maxMemEntries => _thumbs.maxEntries;
   @visibleForTesting
-  static int get debugMemCount => _mem.length;
-
+  static int get debugMemCount => _thumbs.count;
   @visibleForTesting
-  static void debugPut(int id, Uint8List? bytes) => _put(id, bytes);
-
+  static void debugPut(int id, Uint8List? bytes) => _thumbs.put(id, bytes);
   @visibleForTesting
   static void debugClear() {
-    _mem.clear();
-    _inflight.clear();
+    _thumbs.clear();
+    _fulls.clear();
     _warmQueue.clear();
     _warmQueued.clear();
     _warming = false;

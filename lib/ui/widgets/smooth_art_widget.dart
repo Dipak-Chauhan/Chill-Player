@@ -47,10 +47,15 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
     }
   }
 
+  // Full-resolution tier only for large displays (player / detail screens);
+  // everything else uses the fast small thumbnail tier.
+  bool get _full => widget.size > 400;
+  int get _decodeWidth => _full ? ArtworkCache.fullSize : ArtworkCache.thumbSize;
+
   void _resolve({required bool initial}) {
     // Instant hit from the shared cache — no async gap.
-    if (ArtworkCache.contains(widget.id)) {
-      _art = ArtworkCache.peek(widget.id);
+    if (ArtworkCache.contains(widget.id, full: _full)) {
+      _art = ArtworkCache.peek(widget.id, full: _full);
       if (!initial && mounted) setState(() {});
       return;
     }
@@ -59,7 +64,7 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
     if (initial) _art = null;
 
     final int targetId = widget.id;
-    ArtworkCache.load(widget.id, type: widget.artworkType).then((bytes) {
+    ArtworkCache.load(widget.id, full: _full, type: widget.artworkType).then((bytes) {
       if (mounted && widget.id == targetId) {
         setState(() => _art = bytes);
       }
@@ -78,7 +83,7 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
         width: double.infinity,
         height: double.infinity,
         gaplessPlayback: true,
-        cacheWidth: widget.size,
+        cacheWidth: _decodeWidth,
       );
     } else {
       imageWidget = Container(
