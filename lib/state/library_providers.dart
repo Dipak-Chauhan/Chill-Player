@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/song.dart';
+import '../services/artwork_cache.dart';
 
 // ---------------------------------------------------------------------------
 // Library & Sorting
@@ -12,6 +13,8 @@ class GlobalLibraryNotifier extends Notifier<List<Song>> {
 
   void setLibrary(List<Song> songs) {
     state = songs;
+    // Warm artwork in the background so library scrolling shows art instantly.
+    ArtworkCache.warm(songs.map((s) => s.id));
   }
 }
 final globalLibraryProvider = NotifierProvider<GlobalLibraryNotifier, List<Song>>(GlobalLibraryNotifier.new);

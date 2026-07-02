@@ -1,6 +1,5 @@
 import 'dart:collection';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path_provider/path_provider.dart';
@@ -19,10 +18,17 @@ class ArtworkCache {
   /// GPU; full-screen art stays acceptably crisp on phones.
   static const int canonicalSize = 600;
 
-  static const int _maxMemEntries = 400;
+  static const int _maxMemEntries = 800;
   static final LinkedHashMap<int, Uint8List?> _mem = LinkedHashMap<int, Uint8List?>();
   static final Map<int, Future<Uint8List?>> _inflight = {};
   static Directory? _dir;
+
+  // Background warm-up queue (e.g. the whole library) processed at limited
+  // concurrency so scrolling finds artwork already in memory.
+  static final Queue<int> _warmQueue = Queue<int>();
+  static final Set<int> _warmQueued = {};
+  static bool _warming = false;
+  static ArtworkType _warmType = ArtworkType.AUDIO;
 
   /// Returns cached bytes synchronously if present in memory, else null.
   static Uint8List? peek(int id) {
@@ -95,14 +101,45 @@ class ArtworkCache {
     return art;
   }
 
-  /// Warms the cache for several ids (e.g. queue neighbours). Fire-and-forget;
-  /// skips ids already cached or being fetched.
+  /// Warms the cache for several ids (e.g. queue neighbours) immediately.
+  /// Fire-and-forget; skips ids already cached or being fetched.
   static void precache(Iterable<int> ids, {ArtworkType type = ArtworkType.AUDIO}) {
     for (final id in ids) {
       if (!_mem.containsKey(id) && !_inflight.containsKey(id)) {
         load(id, type: type);
       }
     }
+  }
+
+  /// Background warm-up for a large set (e.g. the whole library) so fast
+  /// scrolling finds artwork already resolved. Processed at limited concurrency
+  /// and yields between batches so it never blocks the UI.
+  static void warm(Iterable<int> ids, {ArtworkType type = ArtworkType.AUDIO}) {
+    _warmType = type;
+    for (final id in ids) {
+      if (!_mem.containsKey(id) && !_inflight.containsKey(id) && _warmQueued.add(id)) {
+        _warmQueue.add(id);
+      }
+    }
+    _pumpWarm();
+  }
+
+  static Future<void> _pumpWarm() async {
+    if (_warming) return;
+    _warming = true;
+    const int concurrency = 6;
+    while (_warmQueue.isNotEmpty) {
+      final futures = <Future<void>>[];
+      for (int i = 0; i < concurrency && _warmQueue.isNotEmpty; i++) {
+        final id = _warmQueue.removeFirst();
+        _warmQueued.remove(id);
+        if (_mem.containsKey(id)) continue;
+        futures.add(load(id, type: _warmType).then((_) {}));
+      }
+      if (futures.isNotEmpty) await Future.wait(futures);
+      await Future<void>.delayed(Duration.zero); // yield to the UI
+    }
+    _warming = false;
   }
 
   @visibleForTesting
@@ -118,5 +155,8 @@ class ArtworkCache {
   static void debugClear() {
     _mem.clear();
     _inflight.clear();
+    _warmQueue.clear();
+    _warmQueued.clear();
+    _warming = false;
   }
 }
