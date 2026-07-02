@@ -606,7 +606,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 opaque: false,
                 transitionDuration: const Duration(milliseconds: 500),
                 reverseTransitionDuration: const Duration(milliseconds: 400),
-                pageBuilder: (context, _, __) => LyricsScreen(song: song, systemPadding: rootPadding),
+                pageBuilder: (context, _, _) => LyricsScreen(song: song, systemPadding: rootPadding),
                 transitionsBuilder: (context, animation, secondaryAnimation, child) {
                   return SlideTransition(
                     position: Tween<Offset>(

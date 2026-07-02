@@ -121,30 +121,33 @@ class AudioSettingsScreen extends ConsumerWidget {
         final theme = Theme.of(ctx);
         return Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 8, bottom: 8),
-                child: Text('Minimum song duration',
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              ),
-              ...options.map((seconds) => RadioListTile<int>(
-                    value: seconds,
-                    groupValue: current,
-                    title: Text(seconds == 0
-                        ? 'No filter (show all)'
-                        : seconds < 60
-                            ? '${seconds} seconds'
-                            : '${seconds ~/ 60} minute${seconds >= 120 ? "s" : ""}'),
-                    onChanged: (val) {
-                      ref.read(minSongDurationProvider.notifier).update(val!);
-                      Navigator.pop(ctx);
-                    },
-                  )),
-              const SizedBox(height: 8),
-            ],
+          child: RadioGroup<int>(
+            groupValue: current,
+            onChanged: (val) {
+              if (val == null) return;
+              ref.read(minSongDurationProvider.notifier).update(val);
+              Navigator.pop(ctx);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 8, bottom: 8),
+                  child: Text('Minimum song duration',
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                ),
+                ...options.map((seconds) => RadioListTile<int>(
+                      value: seconds,
+                      title: Text(seconds == 0
+                          ? 'No filter (show all)'
+                          : seconds < 60
+                              ? '$seconds seconds'
+                              : '${seconds ~/ 60} minute${seconds >= 120 ? "s" : ""}'),
+                    )),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         );
       },

@@ -36,14 +36,14 @@ class ThemesSettingsScreen extends ConsumerWidget {
             subtitle: const Text('Material You custom themes for all android versions.'),
             value: true, 
             onChanged: (val) {},
-            activeColor: Theme.of(context).colorScheme.primary,
+            activeThumbColor: Theme.of(context).colorScheme.primary,
           ),
           SwitchListTile(
             title: const Text('Use extra dark colors'),
             subtitle: const Text('Use darker colors for small battery savings on AMOLED screens.'),
             value: amoledMode,
             onChanged: (val) => ref.read(amoledModeProvider.notifier).update(val),
-            activeColor: Theme.of(context).colorScheme.primary,
+            activeThumbColor: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 16),
           Padding(

@@ -381,6 +381,7 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
                             child: child,
                           );
                         },
+                        // ignore: deprecated_member_use  (onReorderItem migration changes index semantics; keeping tested behavior)
                         onReorder: (oldIndex, newIndex) {
                           if (newIndex > oldIndex) newIndex--;
                           ref.read(queueProvider.notifier).reorder(oldIndex, newIndex);

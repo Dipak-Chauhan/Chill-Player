@@ -1,6 +1,7 @@
 import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -102,5 +103,20 @@ class ArtworkCache {
         load(id, type: type);
       }
     }
+  }
+
+  @visibleForTesting
+  static int get maxMemEntries => _maxMemEntries;
+
+  @visibleForTesting
+  static int get debugMemCount => _mem.length;
+
+  @visibleForTesting
+  static void debugPut(int id, Uint8List? bytes) => _put(id, bytes);
+
+  @visibleForTesting
+  static void debugClear() {
+    _mem.clear();
+    _inflight.clear();
   }
 }
