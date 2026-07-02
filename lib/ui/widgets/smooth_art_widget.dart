@@ -32,7 +32,6 @@ class SmoothArtWidget extends StatefulWidget {
 
 class _SmoothArtWidgetState extends State<SmoothArtWidget> {
   Uint8List? _art;
-  bool _loadedSynchronously = false;
 
   @override
   void initState() {
@@ -49,28 +48,20 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
   }
 
   void _resolve({required bool initial}) {
-    // Instant hit from the shared cache — no flash, no async gap.
+    // Instant hit from the shared cache — no async gap.
     if (ArtworkCache.contains(widget.id)) {
       _art = ArtworkCache.peek(widget.id);
-      _loadedSynchronously = true;
       if (!initial && mounted) setState(() {});
       return;
     }
 
-    _loadedSynchronously = false;
-    if (initial) {
-      _art = null;
-    } else {
-      // Keep showing the previous art until the new one resolves (no blink).
-    }
+    // On id change keep showing the previous art until the new one resolves.
+    if (initial) _art = null;
 
     final int targetId = widget.id;
     ArtworkCache.load(widget.id, type: widget.artworkType).then((bytes) {
       if (mounted && widget.id == targetId) {
-        setState(() {
-          _art = bytes;
-          _loadedSynchronously = false;
-        });
+        setState(() => _art = bytes);
       }
     });
   }
@@ -105,24 +96,29 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
       );
     }
 
-    final duration = _loadedSynchronously ? Duration.zero : const Duration(milliseconds: 200);
-
     return ClipRRect(
       borderRadius: BorderRadius.circular(widget.borderRadius),
-      child: SizedBox.expand(
-        child: AnimatedSwitcher(
-          duration: duration,
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
-            return Stack(
-              children: <Widget>[
-                ...previousChildren.map((child) => SizedBox.expand(child: child)),
-                if (currentChild != null) SizedBox.expand(child: currentChild),
-              ],
-            );
-          },
-          child: imageWidget,
+      // Fast fade-in whenever artwork first appears (cached or freshly loaded).
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        builder: (context, opacity, child) => Opacity(opacity: opacity, child: child),
+        child: SizedBox.expand(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            layoutBuilder: (Widget? currentChild, List<Widget> previousChildren) {
+              return Stack(
+                children: <Widget>[
+                  ...previousChildren.map((child) => SizedBox.expand(child: child)),
+                  if (currentChild != null) SizedBox.expand(child: currentChild),
+                ],
+              );
+            },
+            child: imageWidget,
+          ),
         ),
       ),
     );
