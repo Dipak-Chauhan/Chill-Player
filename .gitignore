@@ -49,3 +49,5 @@ android/build/
 # Graphify knowledge graph (generated, machine-local)
 .graphify/
 graphify-out/
+# DevTools (generated tooling preferences)
+devtools_options.yaml
