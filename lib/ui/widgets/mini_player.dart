@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:animations/animations.dart';
@@ -63,26 +62,16 @@ class MiniPlayerHero extends ConsumerWidget {
       },
       child: Material(
         type: MaterialType.transparency,
-        child: ClipPath(
-          clipper: ShapeBorderClipper(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(36))),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: Container(
+        child: Container(
               height: 72,
+              clipBehavior: Clip.antiAlias,
+              // Near-opaque frosted surface (no live BackdropFilter) so the mini
+              // player is cheap to scroll behind and to morph in the transition.
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-                    Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-                    Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.50),
-                  ],
-                  stops: const [0.0, 0.5, 1.0],
-                ),
+                color: Theme.of(context).colorScheme.surfaceContainerHigh.withValues(alpha: 0.97),
                 borderRadius: BorderRadius.circular(36),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.12),
+                  color: Colors.white.withValues(alpha: 0.08),
                   width: 0.5,
                 ),
               ),
@@ -173,8 +162,6 @@ class MiniPlayerHero extends ConsumerWidget {
                 ],
               ),
             ),
-          ),
-        ),
       ),
     );
   }

@@ -185,29 +185,29 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             builder: (context) => QueueScreen(systemPadding: rootPadding),
           );
         },
-        child: ClipRRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-              child: Stack(
+        child: RepaintBoundary(
+          child: Stack(
                 fit: StackFit.expand,
                 children: [
+                  // Static blurred album-art backdrop. Rasterized once per song
+                  // (RepaintBoundary) instead of a per-frame BackdropFilter, so
+                  // the screen stays smooth while the seekbar/art animate.
                   if (!isAmoled)
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            theme.colorScheme.primaryContainer,
-                            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                            theme.colorScheme.surface,
-                          ],
-                          stops: const [0.0, 0.4, 1.0],
+                    Positioned.fill(
+                      child: RepaintBoundary(
+                        child: ClipRect(
+                          child: ImageFiltered(
+                            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                            child: Transform.scale(
+                              scale: 1.3,
+                              child: SmoothArtWidget(id: song.id, size: 200, borderRadius: 0),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   Container(
-                    color: isAmoled ? Colors.black : Colors.black.withValues(alpha: 0.60),
+                    color: isAmoled ? Colors.black : Colors.black.withValues(alpha: 0.5),
                   ),
                   Scaffold(
                     backgroundColor: Colors.transparent,
@@ -234,8 +234,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                   ),
                 ],
               ),
-            ),
-          ),
+        ),
     );
   }
 
@@ -259,14 +258,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Rest of the controls padded horizontally by 16px
+              // Controls share the same 16px side margin as the artwork.
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Column(
                   children: [
                     _buildTitleBlock(ref, song, theme),
                     const SizedBox(height: 16),
-                    const SquigglySeekbar(),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16.0),
+                      child: SquigglySeekbar(),
+                    ),
                     const SizedBox(height: 24),
                     _buildMainControls(ref, theme, isLandscape: false),
                     const SizedBox(height: 24),
@@ -345,7 +347,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
     return ConstrainedBox(
       key: npArtKey,
-      constraints: const BoxConstraints(maxHeight: 400),
+      constraints: const BoxConstraints(maxHeight: 600),
       child: AspectRatio(
         aspectRatio: 1.0,
         child: PageView.builder(
@@ -371,10 +373,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
             // Built once per item; only the transform below updates per frame.
             final card = Center(
-              child: AspectRatio(
-                aspectRatio: 1.0,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: AspectRatio(
+                  aspectRatio: 1.0,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(artRadius),
                     child: SmoothArtWidget(

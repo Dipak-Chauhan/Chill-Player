@@ -93,7 +93,7 @@ class ArtworkCache {
   ArtworkCache._();
 
   static const int thumbSize = 256;
-  static const int fullSize = 720;
+  static const int fullSize = 512;
 
   static final _ArtStore _thumbs = _ArtStore(querySize: thumbSize, suffix: 't', maxEntries: 600);
   static final _ArtStore _fulls = _ArtStore(querySize: fullSize, suffix: 'f', maxEntries: 60);

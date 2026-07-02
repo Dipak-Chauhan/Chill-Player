@@ -24,13 +24,16 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
   double _dragProgress = 0.0;
   int? _currentSongId;
   bool? _wasPlaying;
+  // The wave only starts scrolling after the open transition settles, so the
+  // Now Playing screen stays a static (cacheable) layer during the morph.
+  bool _waveReady = false;
 
   @override
   void initState() {
     super.initState();
     _waveController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: const Duration(seconds: 3),
     )..repeat();
     
     // Handle morph: 1.0 = idle (thin pill), 0.0 = scrubbing (round handle).
@@ -51,6 +54,10 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
       vsync: this,
       duration: const Duration(milliseconds: 250),
     );
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) setState(() => _waveReady = true);
+    });
   }
 
   void _animateInteraction(double target) {
@@ -116,7 +123,7 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
       return "$m:$s";
     }
 
-    if (!isPlaying) {
+    if (!isPlaying || !_waveReady) {
       _waveController.stop();
     } else if (!_waveController.isAnimating) {
       _waveController.repeat();
@@ -141,15 +148,11 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
             ? Duration(milliseconds: (_dragProgress * maxMs).toInt()) 
             : currentDuration;
 
-        return Row(
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 48,
-              child: Text(formatDuration(displayDuration), style: textStyle, textAlign: TextAlign.center),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: LayoutBuilder(
+            LayoutBuilder(
                 builder: (context, boxConstraints) {
                   void seekToLocal(Offset localPosition) {
                     final percent = (localPosition.dx / boxConstraints.maxWidth).clamp(0.0, 1.0);
@@ -199,7 +202,8 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                       _animateAmplitude(isPlaying ? 1.0 : 0.0);
                       _lastTickedPercent = -1;
                     },
-                    child: AnimatedBuilder(
+                    child: RepaintBoundary(
+                      child: AnimatedBuilder(
                       animation: Listenable.merge([_waveController, _interactionController, _amplitudeController, _progressController]),
                       builder: (context, child) {
                         return CustomPaint(
@@ -214,28 +218,30 @@ class _SquigglySeekbarState extends ConsumerState<SquigglySeekbar> with TickerPr
                           ),
                         );
                       },
+                      ),
                     ),
                   );
                 }
               ),
-            ),
-            const SizedBox(width: 16),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _showRemainingTime = !_showRemainingTime;
-                });
-              },
-              child: SizedBox(
-                width: 48,
-                child: Text(
-                  _showRemainingTime 
-                      ? "-${formatDuration((song?.duration ?? Duration.zero) - displayDuration)}"
-                      : formatDuration(song?.duration ?? Duration.zero), 
-                  style: textStyle, 
-                  textAlign: TextAlign.center
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(formatDuration(displayDuration), style: textStyle),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showRemainingTime = !_showRemainingTime;
+                    });
+                  },
+                  child: Text(
+                    _showRemainingTime
+                        ? "-${formatDuration((song?.duration ?? Duration.zero) - displayDuration)}"
+                        : formatDuration(song?.duration ?? Duration.zero),
+                    style: textStyle,
+                  ),
                 ),
-              ),
+              ],
             ),
           ],
         );

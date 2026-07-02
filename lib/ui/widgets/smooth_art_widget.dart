@@ -32,6 +32,7 @@ class SmoothArtWidget extends StatefulWidget {
 
 class _SmoothArtWidgetState extends State<SmoothArtWidget> {
   Uint8List? _art;
+  bool _artIsFull = false; // tier of the bytes currently in _art
 
   @override
   void initState() {
@@ -50,23 +51,35 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
   // Full-resolution tier only for large displays (player / detail screens);
   // everything else uses the fast small thumbnail tier.
   bool get _full => widget.size > 400;
-  int get _decodeWidth => _full ? ArtworkCache.fullSize : ArtworkCache.thumbSize;
 
   void _resolve({required bool initial}) {
-    // Instant hit from the shared cache — no async gap.
-    if (ArtworkCache.contains(widget.id, full: _full)) {
-      _art = ArtworkCache.peek(widget.id, full: _full);
+    final bool full = _full;
+
+    // Target tier already cached -> show instantly.
+    if (ArtworkCache.contains(widget.id, full: full)) {
+      _art = ArtworkCache.peek(widget.id, full: full);
+      _artIsFull = full;
       if (!initial && mounted) setState(() {});
       return;
     }
 
-    // On id change keep showing the previous art until the new one resolves.
-    if (initial) _art = null;
+    // Full-res not ready yet: show the (already-warmed) thumbnail instantly so
+    // artwork appears on every swipe, then upgrade to full-res when it loads.
+    if (full && ArtworkCache.contains(widget.id, full: false)) {
+      _art = ArtworkCache.peek(widget.id, full: false);
+      _artIsFull = false;
+      if (!initial && mounted) setState(() {});
+    } else if (initial) {
+      _art = null;
+    }
 
     final int targetId = widget.id;
-    ArtworkCache.load(widget.id, full: _full, type: widget.artworkType).then((bytes) {
-      if (mounted && widget.id == targetId) {
-        setState(() => _art = bytes);
+    ArtworkCache.load(widget.id, full: full, type: widget.artworkType).then((bytes) {
+      if (mounted && widget.id == targetId && bytes != null) {
+        setState(() {
+          _art = bytes;
+          _artIsFull = full;
+        });
       }
     });
   }
@@ -78,12 +91,12 @@ class _SmoothArtWidgetState extends State<SmoothArtWidget> {
     if (_art != null) {
       imageWidget = Image.memory(
         _art!,
-        key: ValueKey(widget.id),
+        key: ValueKey('${widget.id}_$_artIsFull'),
         fit: BoxFit.cover,
         width: double.infinity,
         height: double.infinity,
         gaplessPlayback: true,
-        cacheWidth: _decodeWidth,
+        cacheWidth: _artIsFull ? ArtworkCache.fullSize : ArtworkCache.thumbSize,
       );
     } else {
       imageWidget = Container(
