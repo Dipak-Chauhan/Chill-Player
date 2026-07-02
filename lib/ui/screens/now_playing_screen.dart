@@ -13,6 +13,7 @@ import 'lyrics_screen.dart';
 import 'queue_screen.dart';
 import 'tag_editor_screen.dart';
 import '../widgets/expand_player_route.dart';
+import '../widgets/mini_player.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:text_scroll/text_scroll.dart';
 
@@ -182,7 +183,19 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             showDragHandle: false,
             barrierColor: Colors.black.withValues(alpha: 0.35),
             constraints: const BoxConstraints(maxWidth: double.infinity),
-            builder: (context) => QueueScreen(systemPadding: rootPadding),
+            builder: (context) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Real mini-player sits above the queue sheet, matching how it
+                // appears everywhere else in the app.
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: MiniPlayerHero(),
+                ),
+                const SizedBox(height: 8),
+                Expanded(child: QueueScreen(systemPadding: rootPadding)),
+              ],
+            ),
           );
         },
         child: RepaintBoundary(
