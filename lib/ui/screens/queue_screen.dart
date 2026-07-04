@@ -15,10 +15,10 @@ class QueueScreen extends ConsumerStatefulWidget {
   const QueueScreen({super.key, required this.systemPadding});
 
   @override
-  ConsumerState<QueueScreen> createState() => _QueueScreenState();
+  ConsumerState<QueueScreen> createState() => QueueScreenState();
 }
 
-class _QueueScreenState extends ConsumerState<QueueScreen> {
+class QueueScreenState extends ConsumerState<QueueScreen> {
   late ScrollController _scrollController;
 
   @override
@@ -37,6 +37,8 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
     _scrollController.dispose();
     super.dispose();
   }
+
+  void scrollToCurrentSong() => _scrollToCurrentSong();
 
   void _scrollToCurrentSong() {
     if (!mounted) return;
