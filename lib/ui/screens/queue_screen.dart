@@ -9,6 +9,10 @@ import '../widgets/frosted_glass.dart';
 import 'library/playlists_screen.dart';
 import 'package:just_audio/just_audio.dart';
 
+/// Fixed height of a queue row (art + padding). Kept in sync with the item
+/// layout so scroll-to-song offsets are exact.
+const double _kQueueItemExtent = 74.0;
+
 class QueueScreen extends ConsumerStatefulWidget {
   final EdgeInsets systemPadding;
 
@@ -25,7 +29,7 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
   void initState() {
     super.initState();
     _scrollController = ScrollController();
-    
+
     // Auto-scroll to currently playing song after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToCurrentSong();
@@ -39,26 +43,34 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
   }
 
   void _scrollToCurrentSong() {
-    if (!mounted) return;
+    if (!mounted || !_scrollController.hasClients) return;
     final queue = ref.read(queueProvider);
     final currentSong = ref.read(currentSongProvider);
-    if (currentSong != null) {
-      final index = queue.indexWhere((s) => s.id == currentSong.id);
-      if (index >= 0) {
-        // Approximate height of each item is 64.0 (including padding/margins)
-        final targetOffset = (index * 64.0).clamp(0.0, _scrollController.position.maxScrollExtent);
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            targetOffset,
-            duration: const Duration(milliseconds: 500),
-            curve: Curves.easeOutCubic,
-          );
-        }
-      }
-    }
+    if (currentSong == null) return;
+    final index = queue.indexWhere((s) => s.id == currentSong.id);
+    if (index < 0) return;
+
+    // Center the current song in the viewport when possible. Rows have a fixed
+    // height (_kQueueItemExtent) so this offset is exact for any position.
+    final viewport = _scrollController.position.viewportDimension;
+    final rawOffset =
+        index * _kQueueItemExtent - (viewport - _kQueueItemExtent) / 2;
+    final targetOffset = rawOffset.clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+    );
   }
 
-  void _showSavePlaylistDialog(BuildContext context, WidgetRef ref, List<Song> queue) {
+  void _showSavePlaylistDialog(
+    BuildContext context,
+    WidgetRef ref,
+    List<Song> queue,
+  ) {
     final controller = TextEditingController();
     showDialog(
       context: context,
@@ -82,9 +94,11 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
               final name = controller.text.trim();
               if (name.isNotEmpty) {
                 final songIds = queue.map((s) => s.id).toList();
-                ref.read(playlistsProvider.notifier).createPlaylistWithSongs(name, songIds);
+                ref
+                    .read(playlistsProvider.notifier)
+                    .createPlaylistWithSongs(name, songIds);
                 Navigator.pop(context);
-                
+
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Saved queue as playlist "$name"'),
@@ -100,13 +114,19 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
     );
   }
 
-  void _confirmClearQueue(BuildContext context, WidgetRef ref, List<Song> queue) {
+  void _confirmClearQueue(
+    BuildContext context,
+    WidgetRef ref,
+    List<Song> queue,
+  ) {
     if (queue.isEmpty) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Clear Queue?'),
-        content: const Text('This will stop playback and empty your current queue. You can undo this action instantly.'),
+        content: const Text(
+          'This will stop playback and empty your current queue. You can undo this action instantly.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -119,8 +139,10 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
             ),
             onPressed: () async {
               Navigator.pop(context); // Close dialog
-              Navigator.pop(context); // Close bottom sheet since queue is empty now
-              
+              Navigator.pop(
+                context,
+              ); // Close bottom sheet since queue is empty now
+
               final oldQueue = List<Song>.from(queue);
               final player = ref.read(audioPlayerProvider);
               final oldIndex = player.currentIndex;
@@ -139,11 +161,13 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
                     action: SnackBarAction(
                       label: 'Undo',
                       onPressed: () async {
-                        await ref.read(queueProvider.notifier).setQueue(
-                          oldQueue,
-                          initialIndex: oldIndex,
-                          initialPosition: oldPosition,
-                        );
+                        await ref
+                            .read(queueProvider.notifier)
+                            .setQueue(
+                              oldQueue,
+                              initialIndex: oldIndex,
+                              initialPosition: oldPosition,
+                            );
                         if (oldIndex != null) {
                           ref.read(isPlayingProvider.notifier).play();
                         }
@@ -156,6 +180,88 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
             child: const Text('Clear'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Compact now-playing bar pinned to the top of the queue surface.
+  /// Tapping it scrolls the list to the current song.
+  Widget _buildNowPlayingHeader(BuildContext context, Song song) {
+    final theme = Theme.of(context);
+    final isPlaying = ref.watch(isPlayingProvider);
+
+    return InkWell(
+      onTap: () {
+        HapticService.medium();
+        _scrollToCurrentSong();
+      },
+      borderRadius: BorderRadius.circular(36),
+      child: Container(
+        height: 72,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+          borderRadius: BorderRadius.circular(36),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.25),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: SizedBox(
+                width: 56,
+                height: 56,
+                child: SmoothArtWidget(
+                  id: song.id,
+                  size: 200,
+                  isMini: true,
+                  borderRadius: 32,
+                  iconSize: 24,
+                  isPlaying: isPlaying,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    song.title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    song.artist,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: () => ref.read(isPlayingProvider.notifier).toggle(),
+              icon: Icon(
+                isPlaying
+                    ? Icons.pause_circle_filled
+                    : Icons.play_circle_filled,
+              ),
+              iconSize: 42,
+              color: theme.colorScheme.primary,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -177,14 +283,20 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: isActive 
-              ? theme.colorScheme.primaryContainer 
-              : (isDestructive ? theme.colorScheme.errorContainer.withValues(alpha: 0.15) : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4)),
+          color: isActive
+              ? theme.colorScheme.primaryContainer
+              : (isDestructive
+                    ? theme.colorScheme.errorContainer.withValues(alpha: 0.15)
+                    : theme.colorScheme.surfaceContainerHighest.withValues(
+                        alpha: 0.4,
+                      )),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isActive 
-                ? theme.colorScheme.primary.withValues(alpha: 0.3) 
-                : (isDestructive ? theme.colorScheme.error.withValues(alpha: 0.2) : Colors.transparent),
+            color: isActive
+                ? theme.colorScheme.primary.withValues(alpha: 0.3)
+                : (isDestructive
+                      ? theme.colorScheme.error.withValues(alpha: 0.2)
+                      : Colors.transparent),
             width: 1,
           ),
         ),
@@ -194,17 +306,21 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
             Icon(
               icon,
               size: 16,
-              color: isActive 
-                  ? theme.colorScheme.primary 
-                  : (isDestructive ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant),
+              color: isActive
+                  ? theme.colorScheme.primary
+                  : (isDestructive
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.onSurfaceVariant),
             ),
             const SizedBox(width: 6),
             Text(
               label,
               style: theme.textTheme.labelMedium?.copyWith(
-                color: isActive 
-                    ? theme.colorScheme.primary 
-                    : (isDestructive ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant),
+                color: isActive
+                    ? theme.colorScheme.primary
+                    : (isDestructive
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.onSurfaceVariant),
                 fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
               ),
             ),
@@ -226,322 +342,418 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
     final isShuffle = ref.watch(shuffleModeProvider);
     final loopMode = ref.watch(loopModeProvider);
 
-    return Padding(
-      padding: EdgeInsets.only(top: topPadding + 20),
-      child: FrostedGlass(
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-        tintOpacity: 0.5,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          decoration: BoxDecoration(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.09),
-              width: 0.8,
-            ),
+    return FrostedGlass(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+      tintOpacity: 0.5,
+      child: Container(
+        padding: EdgeInsets.only(left: 24, right: 24, top: topPadding),
+        decoration: BoxDecoration(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.09),
+            width: 0.8,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 12),
+            Center(
+              child: Container(
+                width: 40,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.4,
                   ),
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Text(
-                    'Up Next',
-                    style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '${queue.length} tracks',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Horizontally scrollable Action Buttons Bar
-              if (queue.isNotEmpty) ...[
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  child: Row(
-                    children: [
-                      _buildHeaderActionChip(
-                        context,
-                        icon: Icons.shuffle,
-                        label: 'Shuffle',
-                        isActive: isShuffle,
-                        onTap: () {
-                          ref.read(shuffleModeProvider.notifier).toggle();
-                          HapticService.medium();
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _buildHeaderActionChip(
-                        context,
-                        icon: loopMode == LoopMode.one ? Icons.repeat_one : Icons.repeat,
-                        label: loopMode == LoopMode.off 
-                            ? 'Repeat Off' 
-                            : (loopMode == LoopMode.one ? 'Repeat One' : 'Repeat All'),
-                        isActive: loopMode != LoopMode.off,
-                        onTap: () {
-                          ref.read(loopModeProvider.notifier).toggle();
-                          HapticService.medium();
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _buildHeaderActionChip(
-                        context,
-                        icon: Icons.playlist_add,
-                        label: 'Save Playlist',
-                        isActive: false,
-                        onTap: () {
-                          HapticService.medium();
-                          _showSavePlaylistDialog(context, ref, queue);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _buildHeaderActionChip(
-                        context,
-                        icon: Icons.clear_all,
-                        label: 'Clear Queue',
-                        isActive: false,
-                        isDestructive: true,
-                        onTap: () {
-                          HapticService.heavy();
-                          _confirmClearQueue(context, ref, queue);
-                        },
-                      ),
-                    ],
+            ),
+            if (currentSong != null) ...[
+              const SizedBox(height: 16),
+              _buildNowPlayingHeader(context, currentSong),
+            ],
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Text(
+                  'Up Next',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const Spacer(),
+                Text(
+                  '${queue.length} tracks',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
-              Expanded(
-                child: queue.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.queue_music,
-                              size: 64,
-                              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+            ),
+            const SizedBox(height: 12),
+            // Horizontally scrollable Action Buttons Bar
+            if (queue.isNotEmpty) ...[
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                child: Row(
+                  children: [
+                    _buildHeaderActionChip(
+                      context,
+                      icon: Icons.shuffle,
+                      label: 'Shuffle',
+                      isActive: isShuffle,
+                      onTap: () {
+                        ref.read(shuffleModeProvider.notifier).toggle();
+                        HapticService.medium();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildHeaderActionChip(
+                      context,
+                      icon: loopMode == LoopMode.one
+                          ? Icons.repeat_one
+                          : Icons.repeat,
+                      label: loopMode == LoopMode.off
+                          ? 'Repeat Off'
+                          : (loopMode == LoopMode.one
+                                ? 'Repeat One'
+                                : 'Repeat All'),
+                      isActive: loopMode != LoopMode.off,
+                      onTap: () {
+                        ref.read(loopModeProvider.notifier).toggle();
+                        HapticService.medium();
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildHeaderActionChip(
+                      context,
+                      icon: Icons.playlist_add,
+                      label: 'Save Playlist',
+                      isActive: false,
+                      onTap: () {
+                        HapticService.medium();
+                        _showSavePlaylistDialog(context, ref, queue);
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _buildHeaderActionChip(
+                      context,
+                      icon: Icons.clear_all,
+                      label: 'Clear Queue',
+                      isActive: false,
+                      isDestructive: true,
+                      onTap: () {
+                        HapticService.heavy();
+                        _confirmClearQueue(context, ref, queue);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            Expanded(
+              child: queue.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.queue_music,
+                            size: 64,
+                            color: theme.colorScheme.onSurfaceVariant
+                                .withValues(alpha: 0.3),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Your queue is empty',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.bold,
                             ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'Your queue is empty',
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Play some music from your library to start your queue',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant
+                                  .withValues(alpha: 0.6),
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Play some music from your library to start your queue',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      )
-                    : ReorderableListView.builder(
-                        scrollController: _scrollController,
-                        itemCount: queue.length,
-                        physics: const BouncingScrollPhysics(),
-                        proxyDecorator: (child, index, animation) {
-                          return AnimatedBuilder(
-                            animation: animation,
-                            builder: (context, child) {
-                              final elevation = Tween<double>(begin: 0, end: 8).animate(animation).value;
-                              return Material(
-                                elevation: elevation,
-                                color: theme.colorScheme.surfaceContainerHigh,
-                                borderRadius: BorderRadius.circular(16),
-                                child: Transform.translate(
-                                  offset: const Offset(0, 3.0),
-                                  child: child!,
-                                ),
-                              );
-                            },
-                            child: child,
-                          );
-                        },
-                        // ignore: deprecated_member_use  (onReorderItem migration changes index semantics; keeping tested behavior)
-                        onReorder: (oldIndex, newIndex) {
-                          if (newIndex > oldIndex) newIndex--;
-                          ref.read(queueProvider.notifier).reorder(oldIndex, newIndex);
-                        },
-                        itemBuilder: (context, index) {
-                          final song = queue[index];
-                          final isPlayingThis = currentSong?.id == song.id;
-
-                          return Dismissible(
-                            key: ValueKey('queue_${song.id}'),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 24),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.error.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(Icons.delete_outline, color: theme.colorScheme.error),
-                            ),
-                            onDismissed: (_) {
-                              ref.read(queueProvider.notifier).removeAt(index);
-                            },
-                            child: InkWell(
-                              onTap: () {
-                                audioPlayer.seek(Duration.zero, index: index);
-                                ref.read(isPlayingProvider.notifier).play();
-                              },
-                              borderRadius: BorderRadius.circular(12),
-                              child: Padding(
-                                padding: const EdgeInsets.only(bottom: 6.0),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 250),
-                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                                  decoration: BoxDecoration(
-                                    color: isPlayingThis
-                                        ? theme.colorScheme.primaryContainer.withValues(alpha: 0.4)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: isPlayingThis
-                                        ? Border.all(color: theme.colorScheme.primary.withValues(alpha: 0.4), width: 1.5)
-                                        : Border.all(color: Colors.transparent, width: 1.5),
-                                    boxShadow: isPlayingThis
-                                        ? [
-                                            BoxShadow(
-                                              color: theme.colorScheme.primary.withValues(alpha: 0.08),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            )
-                                          ]
-                                        : null,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      SizedBox(
-                                        width: 48,
-                                        height: 48,
-                                        child: Stack(
-                                          children: [
-                                            Positioned.fill(
-                                              child: SmoothArtWidget(
-                                                id: song.id,
-                                                size: 150,
-                                                isMini: true,
-                                                borderRadius: 8,
-                                                iconSize: 24,
-                                              ),
-                                            ),
-                                            if (isPlayingThis)
-                                              Positioned.fill(
-                                                child: Container(
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.black.withValues(alpha: 0.4),
-                                                    borderRadius: BorderRadius.circular(8),
-                                                  ),
-                                                  child: Center(
-                                                    child: MiniVisualizer(
-                                                      color: Colors.white,
-                                                      isPlaying: isPlaying,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    song.title,
-                                                    style: theme.textTheme.titleMedium?.copyWith(
-                                                      color: isPlayingThis ? theme.colorScheme.primary : theme.colorScheme.onSurface,
-                                                      fontWeight: isPlayingThis ? FontWeight.bold : FontWeight.w500,
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                if (isPlayingThis) ...[
-                                                  const SizedBox(width: 8),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                                                      borderRadius: BorderRadius.circular(4),
-                                                    ),
-                                                    child: Text(
-                                                      'NOW PLAYING',
-                                                      style: theme.textTheme.labelSmall?.copyWith(
-                                                        color: theme.colorScheme.primary,
-                                                        fontWeight: FontWeight.bold,
-                                                        fontSize: 9,
-                                                  ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ],
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                song.artist,
-                                                style: theme.textTheme.bodySmall?.copyWith(
-                                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        ReorderableDragStartListener(
-                                          index: index,
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(8.0),
-                                            child: Icon(
-                                              Icons.drag_handle,
-                                              color: isPlayingThis
-                                                  ? theme.colorScheme.primary.withValues(alpha: 0.6)
-                                                  : theme.colorScheme.onSurface.withValues(alpha: 0.3),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
+                  : ReorderableListView.builder(
+                      scrollController: _scrollController,
+                      itemCount: queue.length,
+                      itemExtent: _kQueueItemExtent,
+                      physics: const BouncingScrollPhysics(),
+                      proxyDecorator: (child, index, animation) {
+                        return AnimatedBuilder(
+                          animation: animation,
+                          builder: (context, child) {
+                            final elevation = Tween<double>(
+                              begin: 0,
+                              end: 8,
+                            ).animate(animation).value;
+                            return Material(
+                              elevation: elevation,
+                              color: theme.colorScheme.surfaceContainerHigh,
+                              borderRadius: BorderRadius.circular(16),
+                              child: Transform.translate(
+                                offset: const Offset(0, 3.0),
+                                child: child!,
                               ),
                             );
                           },
-                        ),
-                      ),
-            ],
-          ),
+                          child: child,
+                        );
+                      },
+                      // ignore: deprecated_member_use  (onReorderItem migration changes index semantics; keeping tested behavior)
+                      onReorder: (oldIndex, newIndex) {
+                        if (newIndex > oldIndex) newIndex--;
+                        ref
+                            .read(queueProvider.notifier)
+                            .reorder(oldIndex, newIndex);
+                      },
+                      itemBuilder: (context, index) {
+                        final song = queue[index];
+                        final isPlayingThis = currentSong?.id == song.id;
+
+                        return Dismissible(
+                          key: ValueKey('queue_${song.id}'),
+                          direction: DismissDirection.horizontal,
+                          background: Container(
+                            alignment: Alignment.centerLeft,
+                            padding: const EdgeInsets.only(left: 24),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.15,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.playlist_play,
+                              color: theme.colorScheme.primary,
+                            ),
+                          ),
+                          secondaryBackground: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 24),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.error.withValues(
+                                alpha: 0.15,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              Icons.delete_outline,
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                          confirmDismiss: (dir) async {
+                            if (dir == DismissDirection.startToEnd) {
+                              HapticService.medium();
+                              ref.read(queueProvider.notifier).playNext(index);
+                              return false;
+                            }
+                            return true;
+                          },
+                          onDismissed: (_) {
+                            ref.read(queueProvider.notifier).removeAt(index);
+                          },
+                          child: InkWell(
+                            onTap: () {
+                              audioPlayer.seek(Duration.zero, index: index);
+                              ref.read(isPlayingProvider.notifier).play();
+                            },
+                            borderRadius: BorderRadius.circular(12),
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 6.0),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 250),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isPlayingThis
+                                      ? theme.colorScheme.primaryContainer
+                                            .withValues(alpha: 0.4)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: isPlayingThis
+                                      ? Border.all(
+                                          color: theme.colorScheme.primary
+                                              .withValues(alpha: 0.4),
+                                          width: 1.5,
+                                        )
+                                      : Border.all(
+                                          color: Colors.transparent,
+                                          width: 1.5,
+                                        ),
+                                  boxShadow: isPlayingThis
+                                      ? [
+                                          BoxShadow(
+                                            color: theme.colorScheme.primary
+                                                .withValues(alpha: 0.08),
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 48,
+                                      height: 48,
+                                      child: Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: SmoothArtWidget(
+                                              id: song.id,
+                                              size: 150,
+                                              isMini: true,
+                                              borderRadius: 8,
+                                              iconSize: 24,
+                                            ),
+                                          ),
+                                          if (isPlayingThis)
+                                            Positioned.fill(
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black
+                                                      .withValues(alpha: 0.4),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Center(
+                                                  child: MiniVisualizer(
+                                                    color: Colors.white,
+                                                    isPlaying: isPlaying,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  song.title,
+                                                  style: theme
+                                                      .textTheme
+                                                      .titleMedium
+                                                      ?.copyWith(
+                                                        color: isPlayingThis
+                                                            ? theme
+                                                                  .colorScheme
+                                                                  .primary
+                                                            : theme
+                                                                  .colorScheme
+                                                                  .onSurface,
+                                                        fontWeight:
+                                                            isPlayingThis
+                                                            ? FontWeight.bold
+                                                            : FontWeight.w500,
+                                                      ),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              if (isPlayingThis) ...[
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2,
+                                                      ),
+                                                  decoration: BoxDecoration(
+                                                    color: theme
+                                                        .colorScheme
+                                                        .primary
+                                                        .withValues(
+                                                          alpha: 0.15,
+                                                        ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          4,
+                                                        ),
+                                                  ),
+                                                  child: Text(
+                                                    'NOW PLAYING',
+                                                    style: theme
+                                                        .textTheme
+                                                        .labelSmall
+                                                        ?.copyWith(
+                                                          color: theme
+                                                              .colorScheme
+                                                              .primary,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                          fontSize: 9,
+                                                        ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            song.artist,
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.6),
+                                                ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ReorderableDragStartListener(
+                                      index: index,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Icon(
+                                          Icons.drag_handle,
+                                          color: isPlayingThis
+                                              ? theme.colorScheme.primary
+                                                    .withValues(alpha: 0.6)
+                                              : theme.colorScheme.onSurface
+                                                    .withValues(alpha: 0.3),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ),
       ),
     );
@@ -565,7 +777,8 @@ class MiniVisualizer extends StatefulWidget {
   State<MiniVisualizer> createState() => _MiniVisualizerState();
 }
 
-class _MiniVisualizerState extends State<MiniVisualizer> with SingleTickerProviderStateMixin {
+class _MiniVisualizerState extends State<MiniVisualizer>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   final List<double> _speeds = [0.6, 1.2, 0.9, 0.7];
 
@@ -611,7 +824,8 @@ class _MiniVisualizerState extends State<MiniVisualizer> with SingleTickerProvid
             double factor = 0.25;
             if (widget.isPlaying) {
               final progress = _controller.value * 2 * math.pi * _speeds[index];
-              factor = (math.sin(progress).abs() * 0.7) + 0.3; // between 0.3 and 1.0
+              factor =
+                  (math.sin(progress).abs() * 0.7) + 0.3; // between 0.3 and 1.0
             }
             return Container(
               width: 3.0,

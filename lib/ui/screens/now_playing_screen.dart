@@ -1,4 +1,3 @@
-
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,7 +12,6 @@ import 'lyrics_screen.dart';
 import 'queue_screen.dart';
 import 'tag_editor_screen.dart';
 import '../widgets/expand_player_route.dart';
-import '../widgets/mini_player.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:text_scroll/text_scroll.dart';
 
@@ -42,15 +40,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     super.initState();
     final queue = ref.read(queueProvider);
     final currentSong = ref.read(currentSongProvider);
-    final initialIndex = currentSong != null ? queue.indexWhere((s) => s.id == currentSong.id) : 0;
+    final initialIndex = currentSong != null
+        ? queue.indexWhere((s) => s.id == currentSong.id)
+        : 0;
     final safeInitialIndex = initialIndex >= 0 ? initialIndex : 0;
     _lastSafeIndex = safeInitialIndex;
-    
+
     _pageController = PageController(
       initialPage: safeInitialIndex,
       viewportFraction: 1.0,
     );
-    
+
     _pageNotifier.value = safeInitialIndex.toDouble();
     _pageController.addListener(() {
       if (_pageController.hasClients) {
@@ -93,10 +93,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
       } else {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-        SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          systemNavigationBarColor: Colors.transparent,
-        ));
+        SystemChrome.setSystemUIOverlayStyle(
+          const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            systemNavigationBarColor: Colors.transparent,
+          ),
+        );
       }
     }
   }
@@ -106,9 +108,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     final song = ref.watch(currentSongProvider);
     final theme = Theme.of(context);
     final rootPadding = MediaQuery.of(context).viewPadding;
-    final isLandscape = MediaQuery.orientationOf(context) == Orientation.landscape;
+    final isLandscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
     final isAmoled = ref.watch(nowPlayingAmoledProvider);
-    
+
     if (song == null) return const Scaffold();
 
     // Listen for song changes from outside to animate the PageView smoothly
@@ -122,19 +125,22 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           if (_pageController.hasClients) {
             final currentPage = _pageController.page ?? 0.0;
             final double diff = (currentPage - nextIndex).abs();
-            
+
             // Only animate if the PageView is not already scrolling/snapping to the target page (diff >= 0.5)
             if (diff >= 0.5) {
               _isProgrammaticScroll = true;
-              _pageController.animateToPage(
-                nextIndex,
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOutCubic,
-              ).then((_) {
-                _isProgrammaticScroll = false;
-              }).catchError((_) {
-                _isProgrammaticScroll = false;
-              });
+              _pageController
+                  .animateToPage(
+                    nextIndex,
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeOutCubic,
+                  )
+                  .then((_) {
+                    _isProgrammaticScroll = false;
+                  })
+                  .catchError((_) {
+                    _isProgrammaticScroll = false;
+                  });
             }
           }
         }
@@ -156,11 +162,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 _isReorderOrShuffle = true;
               });
             }
-            
+
             _isProgrammaticScroll = true;
             _pageController.jumpToPage(nextIndex);
             _isProgrammaticScroll = false;
-            
+
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
                 setState(() {
@@ -174,84 +180,95 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     });
 
     return PlayerDragToDismiss(
-        onDragUp: () {
-          showModalBottomSheet(
-            context: context,
-            isScrollControlled: true,
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            showDragHandle: false,
-            barrierColor: Colors.black.withValues(alpha: 0.35),
-            constraints: const BoxConstraints(maxWidth: double.infinity),
-            builder: (context) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Real mini-player sits above the queue sheet, matching how it
-                // appears everywhere else in the app.
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12),
-                  child: MiniPlayerHero(),
-                ),
-                const SizedBox(height: 8),
-                Expanded(child: QueueScreen(systemPadding: rootPadding)),
-              ],
-            ),
-          );
-        },
-        child: RepaintBoundary(
-          child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Static blurred album-art backdrop. Rasterized once per song
-                  // (RepaintBoundary) instead of a per-frame BackdropFilter, so
-                  // the screen stays smooth while the seekbar/art animate.
-                  if (!isAmoled)
-                    Positioned.fill(
-                      child: RepaintBoundary(
-                        child: ClipRect(
-                          child: ImageFiltered(
-                            imageFilter: ImageFilter.blur(sigmaX: 28, sigmaY: 28),
-                            child: Transform.scale(
-                              scale: 1.3,
-                              child: SmoothArtWidget(id: song.id, size: 200, borderRadius: 0),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  Container(
-                    color: isAmoled ? Colors.black : Colors.black.withValues(alpha: 0.5),
-                  ),
-                  Scaffold(
-                    backgroundColor: Colors.transparent,
-                    extendBodyBehindAppBar: true,
-                    appBar: null,
-                    body: Material(
-                      type: MaterialType.transparency,
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          // System UI mode is now handled in didChangeDependencies
-
-                          return SafeArea(
-                            top: !isLandscape,
-                            bottom: !isLandscape,
-                            left: true,
-                            right: true,
-                            child: isLandscape 
-                                ? _buildLandscape(context, ref, song, theme, rootPadding, constraints, isAmoled)
-                                : _buildPortrait(context, ref, song, theme, rootPadding, constraints, isAmoled),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
+      onDragUp: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          showDragHandle: false,
+          barrierColor: Colors.black.withValues(alpha: 0.35),
+          constraints: const BoxConstraints(maxWidth: double.infinity),
+          builder: (context) => SizedBox(
+            height: MediaQuery.of(context).size.height,
+            child: QueueScreen(systemPadding: rootPadding),
+          ),
+        );
+      },
+      child: RepaintBoundary(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Solid base so the screen is opaque during the open morph (no
+            // artwork peeking through).
+            const Positioned.fill(child: ColoredBox(color: Colors.black)),
+            // Static blurred album-art backdrop. A tiny thumbnail is cheap to
+            // blur and, wrapped in a RepaintBoundary, rasterizes once so the
+            // open morph just scales the cached texture instead of recomputing
+            // a full-screen gaussian blur every frame.
+            if (!isAmoled)
+              Positioned.fill(
+                child: RepaintBoundary(child: _BlurBackdrop(id: song.id)),
               ),
+            Container(
+              color: isAmoled
+                  ? Colors.black
+                  : Colors.black.withValues(alpha: 0.5),
+            ),
+            Scaffold(
+              backgroundColor: Colors.transparent,
+              extendBodyBehindAppBar: true,
+              appBar: null,
+              body: Material(
+                type: MaterialType.transparency,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // System UI mode is now handled in didChangeDependencies
+
+                    return SafeArea(
+                      top: !isLandscape,
+                      bottom: !isLandscape,
+                      left: true,
+                      right: true,
+                      child: isLandscape
+                          ? _buildLandscape(
+                              context,
+                              ref,
+                              song,
+                              theme,
+                              rootPadding,
+                              constraints,
+                              isAmoled,
+                            )
+                          : _buildPortrait(
+                              context,
+                              ref,
+                              song,
+                              theme,
+                              rootPadding,
+                              constraints,
+                              isAmoled,
+                            ),
+                    );
+                  },
+                ),
+              ),
+            ),
+          ],
         ),
+      ),
     );
   }
 
-  Widget _buildPortrait(BuildContext context, WidgetRef ref, dynamic song, ThemeData theme, EdgeInsets rootPadding, BoxConstraints constraints, bool isAmoled) {
+  Widget _buildPortrait(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic song,
+    ThemeData theme,
+    EdgeInsets rootPadding,
+    BoxConstraints constraints,
+    bool isAmoled,
+  ) {
     final double screenHeight = MediaQuery.of(context).size.height;
     final double contentHeight = screenHeight > 650 ? screenHeight - 60 : 650.0;
 
@@ -267,7 +284,13 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               // Cover art PageView spans full screen width for seamless edge overflow
               Expanded(
                 child: Center(
-                  child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled),
+                  child: _buildAlbumArtPageView(
+                    context,
+                    ref,
+                    song,
+                    theme,
+                    isAmoled,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -300,7 +323,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     );
   }
 
-  Widget _buildLandscape(BuildContext context, WidgetRef ref, dynamic song, ThemeData theme, EdgeInsets rootPadding, BoxConstraints constraints, bool isAmoled) {
+  Widget _buildLandscape(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic song,
+    ThemeData theme,
+    EdgeInsets rootPadding,
+    BoxConstraints constraints,
+    bool isAmoled,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 8.0),
       child: Row(
@@ -310,11 +341,17 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           Expanded(
             flex: 4,
             child: Center(
-              child: _buildAlbumArtPageView(context, ref, song, theme, isAmoled),
+              child: _buildAlbumArtPageView(
+                context,
+                ref,
+                song,
+                theme,
+                isAmoled,
+              ),
             ),
           ),
           const SizedBox(width: 48),
-          
+
           // Right side: Controls
           Expanded(
             flex: 6,
@@ -346,11 +383,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   }
 
   Widget _buildAlbumArtPageView(
-    BuildContext context, 
-    WidgetRef ref, 
-    dynamic song, 
-    ThemeData theme, 
-    bool isAmoled, 
+    BuildContext context,
+    WidgetRef ref,
+    dynamic song,
+    ThemeData theme,
+    bool isAmoled,
   ) {
     final queue = ref.watch(queueProvider);
     if (queue.isEmpty) return const SizedBox.shrink();
@@ -379,10 +416,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             }
           },
           itemBuilder: (context, index) {
-            if (index < 0 || index >= queue.length) return const SizedBox.shrink();
+            if (index < 0 || index >= queue.length) {
+              return const SizedBox.shrink();
+            }
             final queueSong = queue[index];
             // Keep the playing song's art correct during a reorder/shuffle jump.
-            final itemSong = (_isReorderOrShuffle && index == _lastSafeIndex) ? song : queueSong;
+            final itemSong = (_isReorderOrShuffle && index == _lastSafeIndex)
+                ? song
+                : queueSong;
 
             // Built once per item; only the transform below updates per frame.
             final card = Center(
@@ -412,19 +453,31 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               child: card,
               builder: (context, child) {
                 double page;
-                if (_pageController.hasClients && _pageController.position.haveDimensions) {
+                if (_pageController.hasClients &&
+                    _pageController.position.haveDimensions) {
                   page = _pageController.page ?? index.toDouble();
                 } else {
                   page = (_lastSafeIndex ?? index).toDouble();
                 }
                 final difference = index - page;
-                final double scale = (1.0 - (difference.abs() * 0.08)).clamp(0.8, 1.0);
-                final double opacity = (1.0 - (difference.abs() * 0.6)).clamp(0.0, 1.0);
+                final double scale = (1.0 - (difference.abs() * 0.08)).clamp(
+                  0.8,
+                  1.0,
+                );
+                final double opacity = (1.0 - (difference.abs() * 0.6)).clamp(
+                  0.0,
+                  1.0,
+                );
                 final bool isActive = difference.abs() < 0.5;
-                final double activePlayScale = isActive ? (isPlaying ? 1.0 : 0.95) : 1.0;
+                final double activePlayScale = isActive
+                    ? (isPlaying ? 1.0 : 0.95)
+                    : 1.0;
                 return Opacity(
                   opacity: opacity,
-                  child: Transform.scale(scale: scale * activePlayScale, child: child),
+                  child: Transform.scale(
+                    scale: scale * activePlayScale,
+                    child: child,
+                  ),
                 );
               },
             );
@@ -469,7 +522,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: ShapeDecoration(
-                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                color: theme.colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.5,
+                ),
                 shape: const StadiumBorder(),
               ),
               child: Builder(
@@ -487,7 +542,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       }
                     }
                   } catch (_) {}
-                  
+
                   if (sizeStr == 'Unknown') {
                     return Text(
                       ext,
@@ -497,7 +552,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       ),
                     );
                   }
-                  
+
                   return Text(
                     "$ext • $sizeStr",
                     style: theme.textTheme.bodySmall?.copyWith(
@@ -505,7 +560,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                       fontWeight: FontWeight.bold,
                     ),
                   );
-                }
+                },
               ),
             ),
           ],
@@ -523,7 +578,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         final volume = snapshot.data ?? 1.0;
         return Row(
           children: [
-            Icon(volume == 0 ? Icons.volume_off : Icons.volume_down, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+            Icon(
+              volume == 0 ? Icons.volume_off : Icons.volume_down,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
             Expanded(
               child: Slider(
                 value: volume,
@@ -536,17 +594,24 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 },
               ),
             ),
-            Icon(Icons.volume_up, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+            Icon(
+              Icons.volume_up,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _buildMainControls(WidgetRef ref, ThemeData theme, {required bool isLandscape}) {
+  Widget _buildMainControls(
+    WidgetRef ref,
+    ThemeData theme, {
+    required bool isLandscape,
+  }) {
     final double paddingVal = isLandscape ? 12.0 : 20.0;
     final double iconSize = isLandscape ? 28.0 : 36.0;
-    
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -557,10 +622,16 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           child: Container(
             padding: EdgeInsets.all(paddingVal),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
+              ),
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.skip_previous, size: iconSize, color: theme.colorScheme.onSurfaceVariant),
+            child: Icon(
+              Icons.skip_previous,
+              size: iconSize,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
         Consumer(
@@ -574,14 +645,18 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 duration: const Duration(milliseconds: 600),
                 curve: Curves.elasticOut,
                 padding: EdgeInsets.symmetric(
-                  horizontal: isLandscape ? (isPlaying ? 28 : 16) : (isPlaying ? 48 : 24),
+                  horizontal: isLandscape
+                      ? (isPlaying ? 28 : 16)
+                      : (isPlaying ? 48 : 24),
                   vertical: isLandscape ? 16 : (isPlaying ? 28 : 24),
                 ),
                 decoration: ShapeDecoration(
                   color: theme.colorScheme.primaryContainer,
                   shape: isPlaying
                       ? const StadiumBorder() // Pill when playing
-                      : ContinuousRectangleBorder(borderRadius: BorderRadius.circular(50)), // Squircle when paused
+                      : ContinuousRectangleBorder(
+                          borderRadius: BorderRadius.circular(50),
+                        ), // Squircle when paused
                 ),
                 child: Icon(
                   isPlaying ? Icons.pause : Icons.play_arrow,
@@ -599,41 +674,58 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           child: Container(
             padding: EdgeInsets.all(paddingVal),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              color: theme.colorScheme.surfaceContainerHighest.withValues(
+                alpha: 0.5,
+              ),
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.skip_next, size: iconSize, color: theme.colorScheme.onSurfaceVariant),
+            child: Icon(
+              Icons.skip_next,
+              size: iconSize,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildBottomTools(BuildContext context, WidgetRef ref, dynamic song, ThemeData theme, EdgeInsets rootPadding) {
+  Widget _buildBottomTools(
+    BuildContext context,
+    WidgetRef ref,
+    dynamic song,
+    ThemeData theme,
+    EdgeInsets rootPadding,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
         IconButton(
-          icon: const Icon(Icons.lyrics_outlined), 
+          icon: const Icon(Icons.lyrics_outlined),
           onPressed: () {
             Navigator.of(context).push(
               PageRouteBuilder(
                 opaque: false,
                 transitionDuration: const Duration(milliseconds: 500),
                 reverseTransitionDuration: const Duration(milliseconds: 400),
-                pageBuilder: (context, _, _) => LyricsScreen(song: song, systemPadding: rootPadding),
-                transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: const Offset(0, 1),
-                      end: Offset.zero,
-                    ).animate(CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutQuart,
-                    )),
-                    child: child,
-                  );
-                },
+                pageBuilder: (context, _, _) =>
+                    LyricsScreen(song: song, systemPadding: rootPadding),
+                transitionsBuilder:
+                    (context, animation, secondaryAnimation, child) {
+                      return SlideTransition(
+                        position:
+                            Tween<Offset>(
+                              begin: const Offset(0, 1),
+                              end: Offset.zero,
+                            ).animate(
+                              CurvedAnimation(
+                                parent: animation,
+                                curve: Curves.easeOutQuart,
+                              ),
+                            ),
+                        child: child,
+                      );
+                    },
               ),
             );
           },
@@ -642,7 +734,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           builder: (context, ref, child) {
             final isShuffle = ref.watch(shuffleModeProvider);
             return IconButton(
-              icon: Icon(Icons.shuffle, color: isShuffle ? theme.colorScheme.primary : null),
+              icon: Icon(
+                Icons.shuffle,
+                color: isShuffle ? theme.colorScheme.primary : null,
+              ),
               onPressed: () => ref.read(shuffleModeProvider.notifier).toggle(),
             );
           },
@@ -653,7 +748,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
             IconData icon = Icons.repeat;
             if (loopMode == LoopMode.one) icon = Icons.repeat_one;
             return IconButton(
-              icon: Icon(icon, color: loopMode != LoopMode.off ? theme.colorScheme.primary : null),
+              icon: Icon(
+                icon,
+                color: loopMode != LoopMode.off
+                    ? theme.colorScheme.primary
+                    : null,
+              ),
               onPressed: () => ref.read(loopModeProvider.notifier).toggle(),
             );
           },
@@ -662,21 +762,90 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
           icon: const Icon(Icons.info_outline),
           tooltip: 'Song Details',
           onPressed: () {
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => TagEditorScreen(song: song),
-            ));
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => TagEditorScreen(song: song)),
+            );
           },
         ),
         Consumer(
           builder: (context, ref, child) {
             final isAmoled = ref.watch(nowPlayingAmoledProvider);
             return IconButton(
-              icon: Icon(isAmoled ? Icons.dark_mode : Icons.dark_mode_outlined, color: isAmoled ? theme.colorScheme.primary : null),
-              onPressed: () => ref.read(nowPlayingAmoledProvider.notifier).toggle(),
+              icon: Icon(
+                isAmoled ? Icons.dark_mode : Icons.dark_mode_outlined,
+                color: isAmoled ? theme.colorScheme.primary : null,
+              ),
+              onPressed: () =>
+                  ref.read(nowPlayingAmoledProvider.notifier).toggle(),
             );
           },
         ),
       ],
+    );
+  }
+}
+
+/// Cheap frosted backdrop: decodes a tiny thumbnail and blurs it lightly.
+/// Because the source is small and the result is cached by a RepaintBoundary,
+/// it costs almost nothing to composite while the open transition scales it.
+class _BlurBackdrop extends StatefulWidget {
+  final int id;
+  const _BlurBackdrop({required this.id});
+
+  @override
+  State<_BlurBackdrop> createState() => _BlurBackdropState();
+}
+
+class _BlurBackdropState extends State<_BlurBackdrop> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BlurBackdrop oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.id != widget.id) _load();
+  }
+
+  void _load() {
+    final cached = ArtworkCache.peek(widget.id, full: false);
+    if (cached != null) {
+      _bytes = cached;
+      return;
+    }
+    final targetId = widget.id;
+    ArtworkCache.load(widget.id, full: false).then((b) {
+      if (mounted && widget.id == targetId && b != null) {
+        setState(() => _bytes = b);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes == null) return const SizedBox.shrink();
+    return ClipRect(
+      child: ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Transform.scale(
+          scale: 1.2,
+          child: Image.memory(
+            bytes,
+            key: ValueKey(widget.id),
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            gaplessPlayback: true,
+            cacheWidth: 64,
+            filterQuality: FilterQuality.low,
+          ),
+        ),
+      ),
     );
   }
 }
