@@ -9,21 +9,12 @@ import '../../services/settings_service.dart';
 import '../../services/haptic_service.dart';
 
 class MiniPlayerHero extends ConsumerWidget {
-  /// When provided, tapping the mini-player calls this instead of opening
-  /// Now Playing (e.g. inside the queue sheet, where tapping should jump to
-  /// the current song rather than reopen the screen we're already on).
-  final VoidCallback? onTapOverride;
-
-  const MiniPlayerHero({super.key, this.onTapOverride});
+  const MiniPlayerHero({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final song = ref.watch(currentSongProvider);
     if (song == null) return const SizedBox.shrink();
-
-    if (onTapOverride != null) {
-      return _buildMini(context, ref, song, onTapOverride!);
-    }
 
     // Container transform: the mini-player surface expands into the full Now
     // Playing screen and collapses back into it.

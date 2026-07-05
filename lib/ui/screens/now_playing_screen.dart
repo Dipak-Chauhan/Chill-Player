@@ -37,12 +37,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
   int? _lastSafeIndex;
   bool _isReorderOrShuffle = false;
 
-  // The interactive queue PageView (swipe deviation math, per-item
-  // AnimatedBuilder scale/opacity) is expensive to build while the container
-  // transform is also animating shape/position. A cheap static placeholder is
-  // shown until the open transition settles, then swaps to the real PageView.
-  bool _artSettled = false;
-
   @override
   void initState() {
     super.initState();
@@ -66,12 +60,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _precacheAround(safeInitialIndex);
-    });
-
-    // Matches the OpenContainer transition duration (450ms) plus a small
-    // buffer, so the swap happens right as the morph settles.
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (mounted) setState(() => _artSettled = true);
     });
   }
 
@@ -187,34 +175,26 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
 
     return PlayerDragToDismiss(
         onDragUp: () {
-          final queueKey = GlobalKey<QueueScreenState>();
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.transparent,
             elevation: 0,
             showDragHandle: false,
             barrierColor: Colors.black.withValues(alpha: 0.35),
             constraints: const BoxConstraints(maxWidth: double.infinity),
-            builder: (context) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Real mini-player sits above the queue sheet, sharing the
-                  // same side margins so both edges line up.
-                  MiniPlayerHero(
-                    onTapOverride: () {
-                      HapticService.medium();
-                      queueKey.currentState?.scrollToCurrentSong();
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: QueueScreen(key: queueKey, systemPadding: rootPadding),
-                  ),
-                ],
-              ),
+            builder: (context) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Real mini-player sits above the queue sheet, matching how it
+                // appears everywhere else in the app.
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: MiniPlayerHero(),
+                ),
+                const SizedBox(height: 8),
+                Expanded(child: QueueScreen(systemPadding: rootPadding)),
+              ],
             ),
           );
         },
@@ -377,32 +357,6 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     final isPlaying = ref.watch(isPlayingProvider);
 
     const double artRadius = 32.0;
-
-    // During the open/close transition, skip the interactive PageView (swipe
-    // math + per-item AnimatedBuilder) and show just the current artwork. The
-    // container transform then only has to animate a single cheap layer.
-    if (!_artSettled) {
-      return ConstrainedBox(
-        key: npArtKey,
-        constraints: const BoxConstraints(maxHeight: 600),
-        child: AspectRatio(
-          aspectRatio: 1.0,
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(artRadius),
-              child: SmoothArtWidget(
-                id: song.id,
-                size: 600,
-                borderRadius: artRadius,
-                iconSize: 80,
-                isPlaying: isPlaying,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
 
     return ConstrainedBox(
       key: npArtKey,
