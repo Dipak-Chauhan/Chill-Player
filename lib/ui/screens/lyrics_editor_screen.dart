@@ -6,7 +6,6 @@ import '../../models/song.dart';
 import '../../services/local_lyrics_service.dart';
 import '../../services/lrclib_api.dart';
 import '../../theme/color_provider.dart';
-import '../../services/lyrics_plus_api.dart';
 import '../../state/audio_state.dart';
 import '../../state/lyrics_provider.dart';
 
@@ -81,29 +80,15 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
     String fetchType = '';
 
     try {
-      // 1. Try ELRC / TTML (syllable-level synced) from LyricsPlus
-      final ttml = await LyricsPlusApi.fetchTTML(
+      // 1. Try line-by-line synced LRC from LRCLib (hand-editable text).
+      final synced = await LrcLibApi.fetchSyncedLyrics(
         widget.song.title,
         widget.song.artist,
         duration: widget.song.duration,
-        album: widget.song.album,
       );
-      if (ttml != null && ttml.isNotEmpty) {
-        fetchedLyrics = ttml;
-        fetchType = 'ELRC (syllable-synced)';
-      }
-
-      // 2. Try line-by-line synced LRC from LRCLib
-      if (fetchedLyrics == null) {
-        final synced = await LrcLibApi.fetchSyncedLyrics(
-          widget.song.title,
-          widget.song.artist,
-          duration: widget.song.duration,
-        );
-        if (synced != null && synced.isNotEmpty) {
-          fetchedLyrics = synced;
-          fetchType = 'LRC (line-synced)';
-        }
+      if (synced != null && synced.isNotEmpty) {
+        fetchedLyrics = synced;
+        fetchType = 'LRC (line-synced)';
       }
 
       // 3. Try plain/simple lyrics from LRCLib
@@ -131,9 +116,13 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Found $fetchType lyrics! Tap Save to keep offline.'),
+              content: Text(
+                'Found $fetchType lyrics! Tap Save to keep offline.',
+              ),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               duration: const Duration(seconds: 3),
             ),
           );
@@ -145,7 +134,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
             SnackBar(
               content: const Text('No lyrics found online for this song'),
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -158,7 +149,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
           SnackBar(
             content: Text('Failed to fetch: $e'),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -189,7 +182,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
         SnackBar(
           content: const Text('Lyrics saved locally for offline use'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -202,7 +197,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
         SnackBar(
           content: const Text('No saved lyrics to delete'),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           duration: const Duration(seconds: 1),
         ),
       );
@@ -211,7 +208,8 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
 
     final confirm = await _showOpaqueDialog(
       title: 'Delete saved lyrics?',
-      content: 'This will remove your locally saved lyrics. The app will use auto-fetched lyrics from the internet.',
+      content:
+          'This will remove your locally saved lyrics. The app will use auto-fetched lyrics from the internet.',
       confirmText: 'Delete',
     );
 
@@ -231,7 +229,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
           SnackBar(
             content: const Text('Saved lyrics deleted'),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -344,7 +344,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                       artworkFit: BoxFit.cover,
                       artworkWidth: double.infinity,
                       artworkHeight: double.infinity,
-                      nullArtworkWidget: Container(color: const Color(0xFF1A1A1A)),
+                      nullArtworkWidget: Container(
+                        color: const Color(0xFF1A1A1A),
+                      ),
                       keepOldArtwork: true,
                     ),
                   ),
@@ -389,7 +391,11 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                   const SizedBox(height: 2),
                   Text(
                     '${widget.song.title} — ${widget.song.artist}',
-                    style: const TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.w500),
+                    style: const TextStyle(
+                      color: Colors.white60,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -406,14 +412,19 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                             color: accentColor,
                           ),
                         )
-                      : const Icon(Icons.cloud_download_outlined, color: Colors.white70),
+                      : const Icon(
+                          Icons.cloud_download_outlined,
+                          color: Colors.white70,
+                        ),
                   tooltip: 'Fetch lyrics from internet',
                   onPressed: _isFetching ? null : _fetchFromApi,
                 ),
                 IconButton(
                   icon: Icon(
                     Icons.delete_outline_rounded,
-                    color: _hasLocalLyrics ? theme.colorScheme.error : Colors.white70,
+                    color: _hasLocalLyrics
+                        ? theme.colorScheme.error
+                        : Colors.white70,
                   ),
                   tooltip: 'Delete saved lyrics',
                   onPressed: _deleteCustom,
@@ -442,7 +453,10 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                 // Floating status banner card
                 Container(
                   margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: accentColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
@@ -494,7 +508,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                               data: theme.copyWith(
                                 textSelectionTheme: TextSelectionThemeData(
                                   cursorColor: accentColor,
-                                  selectionColor: accentColor.withValues(alpha: 0.3),
+                                  selectionColor: accentColor.withValues(
+                                    alpha: 0.3,
+                                  ),
                                   selectionHandleColor: accentColor,
                                 ),
                               ),
@@ -505,7 +521,8 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                                 textAlignVertical: TextAlignVertical.top,
                                 keyboardType: TextInputType.multiline,
                                 decoration: InputDecoration(
-                                  hintText: 'Paste or type lyrics here...\n\n'
+                                  hintText:
+                                      'Paste or type lyrics here...\n\n'
                                       'Or tap the cloud fetch button above to grab\n'
                                       'lyrics from the internet.\n\n'
                                       'Synced LRC format example:\n'
@@ -538,9 +555,7 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                  color: accentColor.withValues(alpha: 0.4),
-                ),
+                side: BorderSide(color: accentColor.withValues(alpha: 0.4)),
               ),
               tooltip: 'LRC format help',
               child: const Icon(Icons.help_outline_rounded),
@@ -564,9 +579,7 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
             decoration: BoxDecoration(
               color: accentColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: accentColor.withValues(alpha: 0.3),
-              ),
+              border: Border.all(color: accentColor.withValues(alpha: 0.3)),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -587,11 +600,7 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
           const Text(
             'This song has enhanced syllable-by-syllable synced lyrics (Apple Music style). '
             'Tap Save to keep them for offline playback.',
-            style: TextStyle(
-              color: Colors.white60,
-              fontSize: 14,
-              height: 1.5,
-            ),
+            style: TextStyle(color: Colors.white60, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 24),
           // Show raw data in a collapsed expandable
@@ -600,7 +609,11 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
             child: ExpansionTile(
               title: const Text(
                 'View raw TTML data',
-                style: TextStyle(color: Colors.white38, fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  color: Colors.white38,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               tilePadding: EdgeInsets.zero,
               iconColor: Colors.white38,
@@ -646,7 +659,9 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
           child: Container(
             decoration: BoxDecoration(
               color: const Color(0xE6141414), // Frosted glass sheet color
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
               border: Border.all(
                 color: Colors.white.withValues(alpha: 0.08),
                 width: 1,
@@ -682,17 +697,36 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white60, size: 20),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white60,
+                        size: 20,
+                      ),
                       onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
                 ),
                 const SizedBox(height: 16),
-                _helpRow(theme, 'ELRC', 'Syllable-synced (fetched automatically, best quality)', accentColor),
+                _helpRow(
+                  theme,
+                  'ELRC',
+                  'Syllable-synced (fetched automatically, best quality)',
+                  accentColor,
+                ),
                 const SizedBox(height: 12),
-                _helpRow(theme, '[00:12.50]', 'LRC — Line-by-line synced lyrics', accentColor),
+                _helpRow(
+                  theme,
+                  '[00:12.50]',
+                  'LRC — Line-by-line synced lyrics',
+                  accentColor,
+                ),
                 const SizedBox(height: 12),
-                _helpRow(theme, 'Plain Text', 'Unsynced lyrics (no timestamps)', accentColor),
+                _helpRow(
+                  theme,
+                  'Plain Text',
+                  'Unsynced lyrics (no timestamps)',
+                  accentColor,
+                ),
                 const SizedBox(height: 24),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -705,7 +739,11 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.lightbulb_outline_rounded, size: 20, color: accentColor),
+                      Icon(
+                        Icons.lightbulb_outline_rounded,
+                        size: 20,
+                        color: accentColor,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -729,7 +767,12 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
     );
   }
 
-  Widget _helpRow(ThemeData theme, String code, String desc, Color accentColor) {
+  Widget _helpRow(
+    ThemeData theme,
+    String code,
+    String desc,
+    Color accentColor,
+  ) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

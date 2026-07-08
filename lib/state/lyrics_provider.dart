@@ -6,7 +6,10 @@ import '../services/local_lyrics_service.dart';
 import '../utils/lrc_parser.dart';
 import '../services/lyrics_plus_api.dart';
 import '../services/unison_api.dart';
+import '../services/musixmatch_api.dart';
 import '../utils/ttml_parser.dart';
+import '../utils/kpoe_parser.dart';
+import '../utils/musixmatch_parser.dart';
 import 'audio_state.dart';
 
 // ---------------------------------------------------------------------------
@@ -20,28 +23,50 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
 
   // 1. Try API-fetched lyrics first (default)
   try {
-    // 1a. Attempt Apple Music Style Syllable Synced TTML from LyricsPlus
-    final ttmlData = await LyricsPlusApi.fetchTTML(
+    // 1a. Musixmatch richsync — reliable word-by-word (per-word timing) that
+    // works without a browser/Turnstile flow.
+    final richsync = await MusixmatchApi.fetchRichsync(
       currentSong.title,
       currentSong.artist,
       duration: currentSong.duration,
-      album: currentSong.album,
     );
-    if (ttmlData != null && ttmlData.isNotEmpty) {
-      final lines = TtmlParser.parse(ttmlData);
+    if (richsync != null) {
+      final lines = MusixmatchParser.parseRichsync(richsync);
+      if (lines.isNotEmpty) {
+        rawLines = lines;
+      }
+    }
+
+    // 1b. Apple-Music-style syllable-synced lyrics from LyricsPlus, using the
+    // /v2 JSON (KPOE) format which carries per-word timing directly.
+    final kpoeData = rawLines.isNotEmpty
+        ? null
+        : await LyricsPlusApi.fetchKpoe(
+            currentSong.title,
+            currentSong.artist,
+            duration: currentSong.duration,
+            album: currentSong.album,
+          );
+    if (kpoeData != null) {
+      final lines = KpoeParser.parse(kpoeData);
       if (lines.isNotEmpty) {
         bool isTtmlValid = true;
-        
+
         // 1. Duration verification (relax to allow for outros: reject only if lyrics exceed song duration by > 20s or are shorter by > 90s)
-        final double songDurationSec = currentSong.duration.inMilliseconds / 1000.0;
-        final double lyricsDurationSec = lines.last.endTime.inMilliseconds / 1000.0;
-        if ((lyricsDurationSec - songDurationSec) > 20.0 || (songDurationSec - lyricsDurationSec) > 90.0) {
+        final double songDurationSec =
+            currentSong.duration.inMilliseconds / 1000.0;
+        final double lyricsDurationSec =
+            lines.last.endTime.inMilliseconds / 1000.0;
+        if ((lyricsDurationSec - songDurationSec) > 20.0 ||
+            (songDurationSec - lyricsDurationSec) > 90.0) {
           isTtmlValid = false;
         }
 
         // 2. Language/version verification (Japanese CJK character checks for English tracks)
         if (isTtmlValid) {
-          final bool playingIsEnglish = currentSong.title.toLowerCase().contains(RegExp(r'\b(english|eng)\b'));
+          final bool playingIsEnglish = currentSong.title
+              .toLowerCase()
+              .contains(RegExp(r'\b(english|eng)\b'));
           int cjkCount = 0;
           final int checkLimit = math.min(lines.length, 15);
           for (int i = 0; i < checkLimit; i++) {
@@ -71,7 +96,7 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
       if (unisonData != null) {
         final lyrics = unisonData['lyrics']!;
         final format = unisonData['format']!;
-        
+
         List<LyricLine> parsedLines = [];
         if (format == 'ttml') {
           parsedLines = TtmlParser.parse(lyrics);
@@ -81,10 +106,13 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
 
         if (parsedLines.isNotEmpty) {
           bool isUnisonValid = true;
-          
-          final double songDurationSec = currentSong.duration.inMilliseconds / 1000.0;
-          final double lyricsDurationSec = parsedLines.last.endTime.inMilliseconds / 1000.0;
-          if ((lyricsDurationSec - songDurationSec) > 20.0 || (songDurationSec - lyricsDurationSec) > 90.0) {
+
+          final double songDurationSec =
+              currentSong.duration.inMilliseconds / 1000.0;
+          final double lyricsDurationSec =
+              parsedLines.last.endTime.inMilliseconds / 1000.0;
+          if ((lyricsDurationSec - songDurationSec) > 20.0 ||
+              (songDurationSec - lyricsDurationSec) > 90.0) {
             isUnisonValid = false;
           }
 
@@ -150,7 +178,9 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
       continue;
     }
     // Skip compound injections "Artist - Title"
-    if (lowerText == '$cleanTitle - $cleanArtist' || lowerText == '$cleanArtist - $cleanTitle' || lowerText == '$cleanTitle by $cleanArtist') {
+    if (lowerText == '$cleanTitle - $cleanArtist' ||
+        lowerText == '$cleanArtist - $cleanTitle' ||
+        lowerText == '$cleanTitle by $cleanArtist') {
       continue;
     }
 
@@ -171,12 +201,14 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
       final currentEnd = rawLines[i].endTime;
       final nextStart = rawLines[i + 1].startTime;
       if (nextStart - currentEnd >= gapThreshold) {
-        withGaps.add(LyricLine(
-          startTime: currentEnd,
-          endTime: nextStart,
-          text: '• • •',
-          isGap: true,
-        ));
+        withGaps.add(
+          LyricLine(
+            startTime: currentEnd,
+            endTime: nextStart,
+            text: '• • •',
+            isGap: true,
+          ),
+        );
       }
     }
   }
@@ -186,7 +218,12 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
   for (final line in withGaps) {
     if (line.isGap || line.singer == null) continue;
     final s = line.singer!.toLowerCase();
-    if (s.contains('group') || s.contains('all') || s.contains('both') || s.contains('chorus')) continue;
+    if (s.contains('group') ||
+        s.contains('all') ||
+        s.contains('both') ||
+        s.contains('chorus')) {
+      continue;
+    }
     individualSingers.add(line.singer!);
   }
 
@@ -210,7 +247,10 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
         totalDuetLines++;
       } else {
         final sLower = singer.toLowerCase();
-        if (sLower.contains('group') || sLower.contains('all') || sLower.contains('both') || sLower.contains('chorus')) {
+        if (sLower.contains('group') ||
+            sLower.contains('all') ||
+            sLower.contains('both') ||
+            sLower.contains('chorus')) {
           assigned.add(line.copyWith(singerSide: 'center'));
         } else {
           if (!singerSideMap.containsKey(singer)) {

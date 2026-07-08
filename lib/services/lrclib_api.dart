@@ -17,6 +17,13 @@ class LrcLibApi {
       final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
       final cleanedArtist = LyricQueryNormalizer.cleanArtistName(artistName);
 
+      // Fast path: LRCLIB's indexed/cached lookup endpoint. It responds
+      // quickly, unlike /search which does slow full-text lookups and often
+      // times out on weaker connections. Duration is intentionally omitted:
+      // /get treats it as a strict (±2s) filter and 404s on any mismatch.
+      final direct = await _directGet(cleanedTrack, cleanedArtist);
+      if (direct != null) return direct;
+
       final List<dynamic>? data = await _searchApi(cleanedTrack, cleanedArtist);
       if (data != null && data.isNotEmpty) {
         dynamic bestCandidate;
@@ -24,7 +31,12 @@ class LrcLibApi {
 
         for (final item in data) {
           final candidate = item as Map<String, dynamic>;
-          final score = _scoreCandidate(candidate, trackName, artistName, duration);
+          final score = _scoreCandidate(
+            candidate,
+            trackName,
+            artistName,
+            duration,
+          );
           if (score > bestScore) {
             bestScore = score;
             bestCandidate = candidate;
@@ -44,7 +56,6 @@ class LrcLibApi {
 
       // Fallback: search just by track name if strict match fails (like Rush's strategy)
       return await _fallbackSearch(trackName, artistName, duration);
-
     } catch (e) {
       // ignore: avoid_print
       print('Error fetching lyrics: $e');
@@ -73,7 +84,12 @@ class LrcLibApi {
         final synced = candidate['syncedLyrics'] as String?;
         if (synced == null || synced.isEmpty) continue;
 
-        final score = _scoreCandidate(candidate, trackName, artistName, duration);
+        final score = _scoreCandidate(
+          candidate,
+          trackName,
+          artistName,
+          duration,
+        );
         if (score > bestScore) {
           bestScore = score;
           bestCandidate = candidate;
@@ -108,7 +124,12 @@ class LrcLibApi {
         final plain = candidate['plainLyrics'] as String?;
         if (plain == null || plain.isEmpty) continue;
 
-        final score = _scoreCandidate(candidate, trackName, artistName, duration);
+        final score = _scoreCandidate(
+          candidate,
+          trackName,
+          artistName,
+          duration,
+        );
         if (score > bestScore) {
           bestScore = score;
           bestCandidate = candidate;
@@ -122,14 +143,45 @@ class LrcLibApi {
     return null;
   }
 
-  /// Common search API call, returns decoded JSON list or null.
-  static Future<List<dynamic>?> _searchApi(String trackName, String artistName) async {
-    final uri = Uri.parse('$_baseUrl/search').replace(queryParameters: {
-      'track_name': trackName,
-      'artist_name': artistName,
-    });
+  /// Fast lookup via `/api/get`. Returns synced (preferred) or plain lyrics,
+  /// or null if there's no match.
+  static Future<String?> _directGet(String trackName, String artistName) async {
+    try {
+      final uri = Uri.parse('$_baseUrl/get').replace(
+        queryParameters: {'track_name': trackName, 'artist_name': artistName},
+      );
+      final response = await ApiClient.get(
+        uri,
+        timeout: const Duration(seconds: 8),
+      );
 
-    final response = await ApiClient.get(uri, timeout: const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> obj = jsonDecode(response.body);
+        final synced = obj['syncedLyrics'] as String?;
+        final plain = obj['plainLyrics'] as String?;
+        if (synced != null && synced.isNotEmpty) return synced;
+        if (plain != null && plain.isNotEmpty) return plain;
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('LRCLIB /get EXCEPTION: $e');
+    }
+    return null;
+  }
+
+  /// Common search API call, returns decoded JSON list or null.
+  static Future<List<dynamic>?> _searchApi(
+    String trackName,
+    String artistName,
+  ) async {
+    final uri = Uri.parse('$_baseUrl/search').replace(
+      queryParameters: {'track_name': trackName, 'artist_name': artistName},
+    );
+
+    final response = await ApiClient.get(
+      uri,
+      timeout: const Duration(seconds: 10),
+    );
 
     if (response.statusCode == 200) {
       final List<dynamic> data = jsonDecode(response.body);
@@ -145,11 +197,14 @@ class LrcLibApi {
   ) async {
     try {
       final cleanedTrack = LyricQueryNormalizer.cleanTrackName(trackName);
-      final uri = Uri.parse('$_baseUrl/search').replace(queryParameters: {
-        'q': cleanedTrack,
-      });
+      final uri = Uri.parse(
+        '$_baseUrl/search',
+      ).replace(queryParameters: {'q': cleanedTrack});
 
-      final response = await ApiClient.get(uri, timeout: const Duration(seconds: 15));
+      final response = await ApiClient.get(
+        uri,
+        timeout: const Duration(seconds: 15),
+      );
 
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
@@ -159,7 +214,12 @@ class LrcLibApi {
 
           for (final item in data) {
             final candidate = item as Map<String, dynamic>;
-            final score = _scoreCandidate(candidate, trackName, artistName, duration);
+            final score = _scoreCandidate(
+              candidate,
+              trackName,
+              artistName,
+              duration,
+            );
             if (score > bestScore) {
               bestScore = score;
               bestCandidate = candidate;
@@ -192,15 +252,21 @@ class LrcLibApi {
   ) {
     int score = 0;
 
-    final String candTrack = (candidate['trackName'] as String? ?? '').toLowerCase().trim();
-    final String candArtist = (candidate['artistName'] as String? ?? '').toLowerCase().trim();
+    final String candTrack = (candidate['trackName'] as String? ?? '')
+        .toLowerCase()
+        .trim();
+    final String candArtist = (candidate['artistName'] as String? ?? '')
+        .toLowerCase()
+        .trim();
     final double? candDurationSec = (candidate['duration'] as num?)?.toDouble();
 
     final String tarTrack = targetTrack.toLowerCase().trim();
     final String tarArtist = targetArtist.toLowerCase().trim();
 
     // 1. DURATION MATCHING (High importance!)
-    if (targetDuration != null && candDurationSec != null && candDurationSec > 0.0) {
+    if (targetDuration != null &&
+        candDurationSec != null &&
+        candDurationSec > 0.0) {
       final double tarDurationSec = targetDuration.inMilliseconds / 1000.0;
       final double diff = (tarDurationSec - candDurationSec).abs();
       if (diff <= 2.0) {
@@ -215,35 +281,57 @@ class LrcLibApi {
     }
 
     // 2. TEXT CLEANING & EXACT MATCHES
-    final String cleanCandTrack = LyricQueryNormalizer.cleanTrackName(candTrack);
+    final String cleanCandTrack = LyricQueryNormalizer.cleanTrackName(
+      candTrack,
+    );
     final String cleanTarTrack = LyricQueryNormalizer.cleanTrackName(tarTrack);
 
-    final String cleanCandArtist = LyricQueryNormalizer.cleanArtistName(candArtist);
-    final String cleanTarArtist = LyricQueryNormalizer.cleanArtistName(tarArtist);
+    final String cleanCandArtist = LyricQueryNormalizer.cleanArtistName(
+      candArtist,
+    );
+    final String cleanTarArtist = LyricQueryNormalizer.cleanArtistName(
+      tarArtist,
+    );
 
     if (cleanCandTrack == cleanTarTrack) {
       score += 100;
-    } else if (cleanCandTrack.contains(cleanTarTrack) || cleanTarTrack.contains(cleanCandTrack)) {
+    } else if (cleanCandTrack.contains(cleanTarTrack) ||
+        cleanTarTrack.contains(cleanCandTrack)) {
       score += 40;
     }
 
     if (cleanCandArtist == cleanTarArtist) {
       score += 60;
-    } else if (cleanCandArtist.contains(cleanTarArtist) || cleanTarArtist.contains(cleanCandArtist)) {
+    } else if (cleanCandArtist.contains(cleanTarArtist) ||
+        cleanTarArtist.contains(cleanCandArtist)) {
       score += 30;
     }
 
     // 3. VERSION/LANGUAGE SPECIFIC MATCHING (solves YOASOBI English/Japanese issue!)
-    const versionKeywords = ['english', 'eng', 'japanese', 'jap', 'acoustic', 'live', 'cover', 'remix', 'instrumental', 'tv size', 'edit'];
+    const versionKeywords = [
+      'english',
+      'eng',
+      'japanese',
+      'jap',
+      'acoustic',
+      'live',
+      'cover',
+      'remix',
+      'instrumental',
+      'tv size',
+      'edit',
+    ];
     for (final kw in versionKeywords) {
       final bool tarHas = tarTrack.contains(kw);
       final bool candHas = candTrack.contains(kw);
       if (tarHas && candHas) {
         score += 90; // huge bonus if they both specify this version
       } else if (!tarHas && candHas) {
-        score -= 70; // heavily penalize if candidate is a specific version but target is not
+        score -=
+            70; // heavily penalize if candidate is a specific version but target is not
       } else if (tarHas && !candHas) {
-        score -= 70; // heavily penalize if target is a specific version but candidate does not specify it
+        score -=
+            70; // heavily penalize if target is a specific version but candidate does not specify it
       }
     }
 
