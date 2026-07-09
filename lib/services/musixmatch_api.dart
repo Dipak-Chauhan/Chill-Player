@@ -33,7 +33,20 @@ class MusixmatchApi {
     return http.get(uri, headers: _headers).timeout(const Duration(seconds: 8));
   }
 
-  static Future<String?> _getToken() async {
+  static void _invalidateToken() {
+    _token = null;
+    _tokenFetchedAt = null;
+  }
+
+  /// Musixmatch reports quota/rate-limit errors via the inner message header
+  /// status (401/402) even on an HTTP 200.
+  static int _innerStatus(dynamic body) {
+    final s = body?['message']?['header']?['status_code'];
+    return s is num ? s.toInt() : 0;
+  }
+
+  static Future<String?> _getToken({bool forceRefresh = false}) async {
+    if (forceRefresh) _invalidateToken();
     final cached = _token;
     final at = _tokenFetchedAt;
     if (cached != null &&
@@ -76,18 +89,41 @@ class MusixmatchApi {
     String artist, {
     Duration? duration,
   }) async {
-    final token = await _getToken();
-    if (token == null) return null;
-
     // Clean platform tags (feat., remaster, "official video", extra artists)
     // so the matcher picks the right recording instead of a random version.
     final cleanTitle = LyricQueryNormalizer.cleanTrackName(title);
     final cleanArtist = LyricQueryNormalizer.cleanArtistName(artist);
+    final qTrack = cleanTitle.isNotEmpty ? cleanTitle : title;
+    final qArtist = cleanArtist.isNotEmpty ? cleanArtist : artist;
 
+    // Two attempts: if the token was rate-limited (inner 401/402), refresh it
+    // once and retry so lyrics keep working past the first few songs.
+    for (int attempt = 0; attempt < 2; attempt++) {
+      final token = await _getToken(forceRefresh: attempt > 0);
+      if (token == null) return null;
+
+      final outcome = await _attemptRichsync(token, qTrack, qArtist, duration);
+      if (outcome.authFailed) {
+        _invalidateToken();
+        continue;
+      }
+      return outcome.richsync;
+    }
+    return null;
+  }
+
+  /// One matcher + richsync attempt with [token]. [authFailed] is true when the
+  /// token is rate-limited/expired so the caller can refresh and retry.
+  static Future<({bool authFailed, String? richsync})> _attemptRichsync(
+    String token,
+    String qTrack,
+    String qArtist,
+    Duration? duration,
+  ) async {
     try {
       final matcherParams = <String, String>{
-        'q_track': cleanTitle.isNotEmpty ? cleanTitle : title,
-        'q_artist': cleanArtist.isNotEmpty ? cleanArtist : artist,
+        'q_track': qTrack,
+        'q_artist': qArtist,
         'usertoken': token,
         'app_id': _appId,
         'format': 'json',
@@ -99,14 +135,26 @@ class MusixmatchApi {
         '$_base/matcher.track.get',
       ).replace(queryParameters: matcherParams);
       final mResp = await _get(matcherUri);
-      if (mResp.statusCode != 200) return null;
+      if (mResp.statusCode == 401 ||
+          mResp.statusCode == 402 ||
+          mResp.statusCode == 429) {
+        return (authFailed: true, richsync: null);
+      }
+      if (mResp.statusCode != 200) return (authFailed: false, richsync: null);
 
       final mBody = json.decode(mResp.body);
+      final inner = _innerStatus(mBody);
+      if (inner == 401 || inner == 402) {
+        return (authFailed: true, richsync: null);
+      }
+
       final track = mBody?['message']?['body']?['track'];
-      if (track is! Map) return null;
-      if (track['has_richsync'] != 1) return null;
+      if (track is! Map) return (authFailed: false, richsync: null);
+      if (track['has_richsync'] != 1) {
+        return (authFailed: false, richsync: null);
+      }
       final commontrackId = track['commontrack_id'];
-      if (commontrackId == null) return null;
+      if (commontrackId == null) return (authFailed: false, richsync: null);
 
       // Reject wrong-version matches: if the matched track's length differs
       // from the playing file by more than 8s, its word timing won't line up,
@@ -116,7 +164,7 @@ class MusixmatchApi {
         if (trackLen != null &&
             trackLen > 0 &&
             (trackLen - duration.inSeconds).abs() > 8) {
-          return null;
+          return (authFailed: false, richsync: null);
         }
       }
 
@@ -129,15 +177,25 @@ class MusixmatchApi {
         },
       );
       final rResp = await _get(richUri);
-      if (rResp.statusCode != 200) return null;
+      if (rResp.statusCode == 401 ||
+          rResp.statusCode == 402 ||
+          rResp.statusCode == 429) {
+        return (authFailed: true, richsync: null);
+      }
+      if (rResp.statusCode != 200) return (authFailed: false, richsync: null);
 
       final rBody = json.decode(rResp.body);
+      final rInner = _innerStatus(rBody);
+      if (rInner == 401 || rInner == 402) {
+        return (authFailed: true, richsync: null);
+      }
+
       final richsync =
           rBody?['message']?['body']?['richsync']?['richsync_body'];
       if (richsync is String && richsync.isNotEmpty) {
-        return richsync;
+        return (authFailed: false, richsync: richsync);
       }
     } catch (_) {}
-    return null;
+    return (authFailed: false, richsync: null);
   }
 }

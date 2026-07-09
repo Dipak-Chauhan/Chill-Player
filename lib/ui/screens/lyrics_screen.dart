@@ -133,11 +133,13 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     // 60fps sub-frame position interpolator
     _ticker = createTicker((_) {
       if (!mounted) return;
-      
+
       try {
         final now = DateTime.now().millisecondsSinceEpoch;
-        // Throttle to 60fps (~16ms per frame) to prevent extra load on 120Hz screens
-        if (now - _lastTickTime < 16) {
+        // Update at up to ~120fps so the word-by-word wipe tracks high-refresh
+        // displays smoothly. Only the currently animating word rebuilds per
+        // frame, so the extra cost is small.
+        if (now - _lastTickTime < 8) {
           return;
         }
         _lastTickTime = now;
@@ -225,16 +227,27 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
       final scrollable = Scrollable.maybeOf(lineContext);
       if (scrollable == null) return null;
       final scrollableBox = scrollable.context.findRenderObject() as RenderBox?;
-      if (scrollableBox == null || !scrollableBox.hasSize || !scrollableBox.attached) return null;
+      if (scrollableBox == null ||
+          !scrollableBox.hasSize ||
+          !scrollableBox.attached) {
+        return null;
+      }
 
       final double lineHeight = box.size.height;
       final double viewportHeight = scrollableBox.size.height;
 
       // Calculate local offset of the child relative to the scrollable viewport RenderBox
-      final localOffset = box.localToGlobal(Offset.zero, ancestor: scrollableBox);
+      final localOffset = box.localToGlobal(
+        Offset.zero,
+        ancestor: scrollableBox,
+      );
 
       // Target scroll offset to center the line
-      final double targetOffset = _scroll.offset + localOffset.dy + (lineHeight / 2) - (viewportHeight / 2);
+      final double targetOffset =
+          _scroll.offset +
+          localOffset.dy +
+          (lineHeight / 2) -
+          (viewportHeight / 2);
 
       // Clamp between 0 and maxScrollExtent
       final double maxScroll = _scroll.position.maxScrollExtent;
@@ -781,9 +794,9 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                           color: _isAmoledMode
                               ? Colors.white.withValues(alpha: 0.05)
                               : Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest
-                                  .withValues(alpha: 0.2),
+                                    .colorScheme
+                                    .surfaceContainerHighest
+                                    .withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -814,9 +827,9 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                               color: _isAmoledMode
                                   ? Colors.white.withValues(alpha: 0.1)
                                   : Theme.of(context)
-                                      .colorScheme
-                                      .primaryContainer
-                                      .withValues(alpha: 0.5),
+                                        .colorScheme
+                                        .primaryContainer
+                                        .withValues(alpha: 0.5),
                               shape: isPlaying
                                   ? const StadiumBorder()
                                   : ContinuousRectangleBorder(
@@ -829,9 +842,9 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                               color: _isAmoledMode
                                   ? Colors.white.withValues(alpha: 0.8)
                                   : Theme.of(context)
-                                      .colorScheme
-                                      .onPrimaryContainer
-                                      .withValues(alpha: 0.9),
+                                        .colorScheme
+                                        .onPrimaryContainer
+                                        .withValues(alpha: 0.9),
                             ),
                           ),
                         );
@@ -847,9 +860,9 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                           color: _isAmoledMode
                               ? Colors.white.withValues(alpha: 0.05)
                               : Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest
-                                  .withValues(alpha: 0.2),
+                                    .colorScheme
+                                    .surfaceContainerHighest
+                                    .withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -971,7 +984,9 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white70),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white70,
+                              ),
                             ),
                           ),
                         ),
@@ -1055,7 +1070,13 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
   static String _cleanForCompare(String s) {
     return s
         .toLowerCase()
-        .replaceAll(RegExp(r"[.,\/#!$%\^&\*;:{}=\-_`~()?'" '"]'), '')
+        .replaceAll(
+          RegExp(
+            r"[.,\/#!$%\^&\*;:{}=\-_`~()?'"
+            '"]',
+          ),
+          '',
+        )
         .replaceAll(RegExp(r'\s+'), '')
         .trim();
   }
@@ -1074,8 +1095,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
         ),
       );
     }
-
-
 
     // Synchronize our layout keys list to exactly match the lyrics array size
     if (_lineKeys.length != lyrics.length) {
@@ -1103,9 +1122,11 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
           physics: const ClampingScrollPhysics(),
           padding: EdgeInsets.fromLTRB(
             20,
-            vh * 0.50, // 50% clearance so the first line starts exactly at vertical center
+            vh *
+                0.50, // 50% clearance so the first line starts exactly at vertical center
             20,
-            vh * 0.50, // 50% clearance so the last line can end exactly at vertical center
+            vh *
+                0.50, // 50% clearance so the last line can end exactly at vertical center
           ),
           child: Column(
             key: _columnKey,
@@ -1120,8 +1141,10 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                       trans.translations[i].isNotEmpty
                   ? trans.translations[i]
                   : null;
-              final String? transText = transTextRaw != null &&
-                      _cleanForCompare(transTextRaw) != _cleanForCompare(line.text)
+              final String? transText =
+                  transTextRaw != null &&
+                      _cleanForCompare(transTextRaw) !=
+                          _cleanForCompare(line.text)
                   ? transTextRaw
                   : null;
               final String? romanText =
@@ -1138,7 +1161,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                       i < roman.romanizedWords.length
                   ? roman.romanizedWords[i]
                   : null;
-  
+
               return RepaintBoundary(
                 child: _LyricLineWrapper(
                   key: _lineKeys[i],
@@ -1403,7 +1426,9 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
 
     final crossAlign = side == 'right'
         ? CrossAxisAlignment.end
-        : (side == 'center' ? CrossAxisAlignment.center : CrossAxisAlignment.start);
+        : (side == 'center'
+              ? CrossAxisAlignment.center
+              : CrossAxisAlignment.start);
 
     final scaleAlignment = side == 'right'
         ? Alignment.centerRight
@@ -1411,7 +1436,9 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
 
     final padding = side == 'right'
         ? EdgeInsets.only(left: vWidth * 0.18, right: 8)
-        : (side == 'left' ? EdgeInsets.only(right: vWidth * 0.18, left: 8) : EdgeInsets.symmetric(horizontal: 8));
+        : (side == 'left'
+              ? EdgeInsets.only(right: vWidth * 0.18, left: 8)
+              : EdgeInsets.symmetric(horizontal: 8));
 
     Widget core = GestureDetector(
       onTap: widget.onTap,
@@ -1596,11 +1623,7 @@ class _StaticText extends StatelessWidget {
     );
 
     if (!isActive) {
-      return Text(
-        text,
-        textAlign: textAlign,
-        style: baseStyle,
-      );
+      return Text(text, textAlign: textAlign, style: baseStyle);
     }
 
     return Stack(
@@ -1615,9 +1638,7 @@ class _StaticText extends StatelessWidget {
           child: Text(
             text,
             textAlign: textAlign,
-            style: baseStyle.copyWith(
-              color: Colors.white38,
-            ),
+            style: baseStyle.copyWith(color: Colors.white38),
           ),
         ),
         ImageFiltered(
@@ -1629,16 +1650,10 @@ class _StaticText extends StatelessWidget {
           child: Text(
             text,
             textAlign: textAlign,
-            style: baseStyle.copyWith(
-              color: Colors.white24,
-            ),
+            style: baseStyle.copyWith(color: Colors.white24),
           ),
         ),
-        Text(
-          text,
-          textAlign: textAlign,
-          style: baseStyle,
-        ),
+        Text(text, textAlign: textAlign, style: baseStyle),
       ],
     );
   }
@@ -1670,9 +1685,7 @@ class _GapIndicator extends StatelessWidget {
             angle: -0.15,
             child: Text(
               String.fromCharCode(Icons.music_note_rounded.codePoint),
-              style: style.copyWith(
-                fontSize: 30.0,
-              ),
+              style: style.copyWith(fontSize: 30.0),
             ),
           ),
         ),
@@ -1683,9 +1696,7 @@ class _GapIndicator extends StatelessWidget {
             angle: 0.10,
             child: Text(
               String.fromCharCode(Icons.music_note_rounded.codePoint),
-              style: style.copyWith(
-                fontSize: 40.0,
-              ),
+              style: style.copyWith(fontSize: 40.0),
             ),
           ),
         ),
@@ -1710,8 +1721,11 @@ class _GapIndicator extends StatelessWidget {
                     final durMs = endMs - startMs;
                     if (durMs <= 0) return const SizedBox.shrink();
 
-                    final double progress = ((ms - startMs) / durMs).clamp(0.0, 1.0);
-                    final double exitScale = progress > 0.90 
+                    final double progress = ((ms - startMs) / durMs).clamp(
+                      0.0,
+                      1.0,
+                    );
+                    final double exitScale = progress > 0.90
                         ? (1.0 - (progress - 0.90) / 0.10).clamp(0.0, 1.0)
                         : 1.0;
 
@@ -1731,14 +1745,8 @@ class _GapIndicator extends StatelessWidget {
                     final topStyle = baseStyle.copyWith(
                       color: Colors.white,
                       shadows: const [
-                        Shadow(
-                          color: Colors.white,
-                          blurRadius: 10.0,
-                        ),
-                        Shadow(
-                          color: Colors.white70,
-                          blurRadius: 20.0,
-                        ),
+                        Shadow(color: Colors.white, blurRadius: 10.0),
+                        Shadow(color: Colors.white70, blurRadius: 20.0),
                       ],
                     );
 
@@ -1752,7 +1760,7 @@ class _GapIndicator extends StatelessWidget {
                           children: [
                             // 1. Bottom inactive/dim layer (always fully visible under)
                             _buildDoubleNote(bottomStyle),
-                            
+
                             // 2. Top active/glowing layer (sweeps left-to-right with a super-soft feathered mask)
                             ShaderMask(
                               shaderCallback: (bounds) {
@@ -1851,11 +1859,13 @@ class _WordByWordLineState extends State<_WordByWordLine> {
       final snapEnd = (j < raw.length - 1)
           ? raw[j + 1].startTime
           : current.endTime;
-      _words.add(LyricWord(
-        startTime: current.startTime,
-        endTime: snapEnd,
-        text: current.text,
-      ));
+      _words.add(
+        LyricWord(
+          startTime: current.startTime,
+          endTime: snapEnd,
+          text: current.text,
+        ),
+      );
     }
   }
 
@@ -1877,9 +1887,14 @@ class _WordByWordLineState extends State<_WordByWordLine> {
           isBackground: widget.isBackground,
           romanText: wordRoman,
           wordStartMs: word.startTime.inMilliseconds,
-          durationMs: math.max(word.endTime.inMilliseconds - word.startTime.inMilliseconds, 1),
+          durationMs: math.max(
+            word.endTime.inMilliseconds - word.startTime.inMilliseconds,
+            1,
+          ),
           posMs: widget.posMs,
-          allowGrow: !widget.isBackground && (widget.line.words != null && widget.line.words!.isNotEmpty),
+          allowGrow:
+              !widget.isBackground &&
+              (widget.line.words != null && widget.line.words!.isNotEmpty),
         );
       }),
     );
@@ -1889,11 +1904,7 @@ class _WordByWordLineState extends State<_WordByWordLine> {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SMOOTH WORD — YouLy+ dual-layer gradient wipe with character grow support
 // ═══════════════════════════════════════════════════════════════════════════════
-enum _WordAnimState {
-  future,
-  animating,
-  past,
-}
+enum _WordAnimState { future, animating, past }
 
 class _SmoothWord extends ConsumerStatefulWidget {
   final String text;
@@ -2001,7 +2012,10 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     } else {
       _totalDurationMs = widget.durationMs.toDouble();
     }
-    _totalDurationMs = math.max(_totalDurationMs, math.max(widget.durationMs * 2.5, 2000.0));
+    _totalDurationMs = math.max(
+      _totalDurationMs,
+      math.max(widget.durationMs * 2.5, 2000.0),
+    );
   }
 
   bool _isGrowable() {
@@ -2052,9 +2066,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
             offset: const Offset(0.0, translateY),
             child: Text(
               chars[i],
-              style: baseStyle.copyWith(
-                color: Colors.white,
-              ),
+              style: baseStyle.copyWith(color: Colors.white),
             ),
           );
         }),
@@ -2095,9 +2107,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
           mainWordRow,
           Text(
             widget.romanText!,
-            style: romanStyle.copyWith(
-              color: Colors.white,
-            ),
+            style: romanStyle.copyWith(color: Colors.white),
           ),
         ],
       );
@@ -2124,10 +2134,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     );
 
     // Style for the top (active/glowing) layer: has shadows, full white text
-    final topStyle = baseStyle.copyWith(
-      fontSize: fs,
-      color: Colors.white,
-    );
+    final topStyle = baseStyle.copyWith(fontSize: fs, color: Colors.white);
 
     final Widget bottomWordText = Text(widget.text, style: bottomStyle);
     Widget bottomBlock;
@@ -2163,14 +2170,14 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         letterSpacing: 0.0,
         height: 1.3,
       );
-      final Widget topRomanText = _buildTextWithGlow(widget.romanText!, topRomanStyle);
+      final Widget topRomanText = _buildTextWithGlow(
+        widget.romanText!,
+        topRomanStyle,
+      );
       topBlock = Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          topWordText,
-          topRomanText,
-        ],
+        children: [topWordText, topRomanText],
       );
     }
 
@@ -2208,7 +2215,10 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
 
     // Emphasis metrics
     final double durationMs = widget.durationMs.toDouble();
-    final double progressMetric = ((durationMs - 1000.0) / 4000.0).clamp(0.0, 1.0);
+    final double progressMetric = ((durationMs - 1000.0) / 4000.0).clamp(
+      0.0,
+      1.0,
+    );
     final double easedProgress = math.pow(progressMetric, 3.0).toDouble();
     const double penaltyFactor = 1.0;
 
@@ -2223,7 +2233,8 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         decayStrength += ((wordLength - 5) / 3.0).clamp(0.0, 1.0) * 0.4;
       }
       if (isShortDuration) {
-        decayStrength += (1.0 - (durationMs - 1000.0) / 500.0).clamp(0.0, 1.0) * 0.4;
+        decayStrength +=
+            (1.0 - (durationMs - 1000.0) / 500.0).clamp(0.0, 1.0) * 0.4;
       }
       maxDecayRate = decayStrength.clamp(0.0, 0.85);
     }
@@ -2241,7 +2252,8 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         final double totalChars = numChars.toDouble();
         final double startPercent = i / totalChars;
         final double durationPercent = 1.0 / totalChars;
-        final double charStartMs = widget.wordStartMs + widget.durationMs * startPercent;
+        final double charStartMs =
+            widget.wordStartMs + widget.durationMs * startPercent;
         final double charSweepDurationMs = widget.durationMs * durationPercent;
         final double charElapsedMs = posMs - charStartMs;
 
@@ -2268,11 +2280,13 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         final double charMaxScale = 1.0 + baseGrowth + charProgress * 0.1;
         final double charShadowIntensity = 0.4 + charProgress * 0.4;
         final double normalizedGrowth = (charMaxScale - 1.0) / 0.13;
-        final double charTranslateYPeak = -normalizedGrowth * 6.0; // in pixels (e.g. -6px)
+        final double charTranslateYPeak =
+            -normalizedGrowth * 6.0; // in pixels (e.g. -6px)
 
         // horizontal offset based on character relative position (approximate index)
         final double charPct = numChars > 1 ? i / (numChars - 1) : 0.0;
-        final double horizontalOffsetPixels = (charPct - 0.5) * 2.0 * (charMaxScale - 1.0) * 28.0;
+        final double horizontalOffsetPixels =
+            (charPct - 0.5) * 2.0 * (charMaxScale - 1.0) * 28.0;
 
         double scale = 1.0;
         double translateY = 0.0;
@@ -2297,7 +2311,8 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
           final double segmentT = (tChar - 0.30) / 0.70;
           final double easedSegmentT = Curves.easeInOut.transform(segmentT);
           scale = charMaxScale + (1.0 - charMaxScale) * easedSegmentT;
-          translateY = charTranslateYPeak + (-1.0 - charTranslateYPeak) * easedSegmentT;
+          translateY =
+              charTranslateYPeak + (-1.0 - charTranslateYPeak) * easedSegmentT;
           translateX = horizontalOffsetPixels * (1.0 - easedSegmentT);
           shadowIntensity = charShadowIntensity * (1.0 - easedSegmentT);
         }
@@ -2314,39 +2329,51 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         final List<Shadow> finalShadows = [];
         if (shadowAlpha > 0.01 || glowDecay > 0.01) {
           // Layer 1: Tight white blur for focus core (grow driven)
-          final double tightAlpha = math.max(shadowAlpha * 0.95, (glowDecay * 0.70) * pChar);
+          final double tightAlpha = math.max(
+            shadowAlpha * 0.95,
+            (glowDecay * 0.70) * pChar,
+          );
           if (tightAlpha > 0.01) {
-            finalShadows.add(Shadow(
-              color: Colors.white.withValues(alpha: tightAlpha),
-              blurRadius: 5.0,
-            ));
+            finalShadows.add(
+              Shadow(
+                color: Colors.white.withValues(alpha: tightAlpha),
+                blurRadius: 5.0,
+              ),
+            );
           }
 
           // Layer 2: Medium white glow bloom (vibrant)
-          final double activeGlowAlpha = math.max(shadowAlpha * 0.85, (glowDecay * 0.95) * pChar);
+          final double activeGlowAlpha = math.max(
+            shadowAlpha * 0.85,
+            (glowDecay * 0.95) * pChar,
+          );
           if (activeGlowAlpha > 0.01) {
-            finalShadows.add(Shadow(
-              color: Colors.white.withValues(alpha: activeGlowAlpha),
-              blurRadius: 12.0,
-            ));
+            finalShadows.add(
+              Shadow(
+                color: Colors.white.withValues(alpha: activeGlowAlpha),
+                blurRadius: 12.0,
+              ),
+            );
           }
 
           // Layer 3: Wide ambient blur/glow aura (new combined effect!)
-          final double wideGlowAlpha = math.max(shadowAlpha * 0.50, (glowDecay * 0.60) * pChar);
+          final double wideGlowAlpha = math.max(
+            shadowAlpha * 0.50,
+            (glowDecay * 0.60) * pChar,
+          );
           if (wideGlowAlpha > 0.01) {
-            finalShadows.add(Shadow(
-              color: Colors.white.withValues(alpha: wideGlowAlpha),
-              blurRadius: 24.0,
-            ));
+            finalShadows.add(
+              Shadow(
+                color: Colors.white.withValues(alpha: wideGlowAlpha),
+                blurRadius: 24.0,
+              ),
+            );
           }
         }
 
         final Widget positionedChar = Text(
           char,
-          style: baseStyle.copyWith(
-            color: charColor,
-            shadows: finalShadows,
-          ),
+          style: baseStyle.copyWith(color: charColor, shadows: finalShadows),
         );
 
         return Transform.translate(
@@ -2450,16 +2477,23 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
 
     Widget childWidget;
     if (!_isGrowable()) {
-      final double progress = (widget.posMs.value - widget.wordStartMs) / widget.durationMs;
+      final double progress =
+          (widget.posMs.value - widget.wordStartMs) / widget.durationMs;
       final double p = progress.clamp(0.0, 1.0);
-      final List<Shadow>? staticGlow = glowDecay > 0.01 
+      final List<Shadow>? staticGlow = glowDecay > 0.01
           ? [
-              Shadow(color: Colors.white.withValues(alpha: glowDecay * 0.95), blurRadius: 8.0),
-              Shadow(color: Colors.white.withValues(alpha: glowDecay * 0.60), blurRadius: 20.0),
+              Shadow(
+                color: Colors.white.withValues(alpha: glowDecay * 0.95),
+                blurRadius: 8.0,
+              ),
+              Shadow(
+                color: Colors.white.withValues(alpha: glowDecay * 0.60),
+                blurRadius: 20.0,
+              ),
             ]
           : null;
-      final styleWithGlow = staticGlow != null 
-          ? baseStyle.copyWith(shadows: staticGlow) 
+      final styleWithGlow = staticGlow != null
+          ? baseStyle.copyWith(shadows: staticGlow)
           : baseStyle;
       childWidget = _buildSweptStaticWord(styleWithGlow, p);
     } else if (_currentState == _WordAnimState.future) {
@@ -2469,13 +2503,21 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
       _staticPastWidget ??= _buildStaticWord(baseStyle, progress: 1.0);
       childWidget = _staticPastWidget!;
     } else {
-      childWidget = _buildAnimatingWord(baseStyle, elapsedMs, _numChars, glowColor, glowDecay);
+      childWidget = _buildAnimatingWord(
+        baseStyle,
+        elapsedMs,
+        _numChars,
+        glowColor,
+        glowDecay,
+      );
     }
 
     // Apply horizontal Wobble transform to the animating word (subtle stretch + translation)
-    if (_currentState == _WordAnimState.animating && (translateX.abs() > 0.01 || (scaleX - 1.0).abs() > 0.001)) {
+    if (_currentState == _WordAnimState.animating &&
+        (translateX.abs() > 0.01 || (scaleX - 1.0).abs() > 0.001)) {
       childWidget = Transform(
-        transform: Matrix4.translationValues(translateX, 0.0, 0.0)..scaleByDouble(scaleX, 1.0, 1.0, 1.0),
+        transform: Matrix4.translationValues(translateX, 0.0, 0.0)
+          ..scaleByDouble(scaleX, 1.0, 1.0, 1.0),
         alignment: Alignment.centerLeft,
         child: childWidget,
       );
@@ -2554,7 +2596,11 @@ class _TranslationSheet extends ConsumerWidget {
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white60, size: 20),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white60,
+                      size: 20,
+                    ),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -2588,9 +2634,13 @@ class _TranslationSheet extends ConsumerWidget {
                       icon: Icons.spellcheck_rounded,
                       label: 'Show Romanization',
                       active: isRomanizationSupported ? hasRomanization : false,
-                      subtitle: isRomanizationSupported ? null : 'Not needed for this song',
+                      subtitle: isRomanizationSupported
+                          ? null
+                          : 'Not needed for this song',
                       accentColor: accentColor,
-                      onTap: isRomanizationSupported ? onToggleRomanization : () {},
+                      onTap: isRomanizationSupported
+                          ? onToggleRomanization
+                          : () {},
                     ),
                   ],
                 ),
@@ -2620,7 +2670,7 @@ class _TranslationSheet extends ConsumerWidget {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: sel 
+                        color: sel
                             ? accentColor.withValues(alpha: 0.15)
                             : Colors.white.withValues(alpha: 0.03),
                         borderRadius: BorderRadius.circular(24),
@@ -2629,13 +2679,15 @@ class _TranslationSheet extends ConsumerWidget {
                               ? accentColor.withValues(alpha: 0.4)
                               : Colors.white.withValues(alpha: 0.06),
                         ),
-                        boxShadow: sel ? [
-                          BoxShadow(
-                            color: accentColor.withValues(alpha: 0.1),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          )
-                        ] : null,
+                        boxShadow: sel
+                            ? [
+                                BoxShadow(
+                                  color: accentColor.withValues(alpha: 0.1),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ]
+                            : null,
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -2652,7 +2704,9 @@ class _TranslationSheet extends ConsumerWidget {
                             e.value,
                             style: TextStyle(
                               color: sel ? Colors.white : Colors.white60,
-                              fontWeight: sel ? FontWeight.w700 : FontWeight.w600,
+                              fontWeight: sel
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
                               fontSize: 13,
                             ),
                           ),
@@ -2703,8 +2757,8 @@ class _ToggleTile extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: active 
-                    ? accentColor.withValues(alpha: 0.1) 
+                color: active
+                    ? accentColor.withValues(alpha: 0.1)
                     : Colors.white.withValues(alpha: 0.03),
                 shape: BoxShape.circle,
               ),
@@ -2794,7 +2848,12 @@ class _HorizontalPercentClipper extends CustomClipper<Rect> {
 
   @override
   Rect getClip(Size size) {
-    return Rect.fromLTRB(-100.0, -100.0, size.width * percent, size.height + 100.0);
+    return Rect.fromLTRB(
+      -100.0,
+      -100.0,
+      size.width * percent,
+      size.height + 100.0,
+    );
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import '../models/lyric_line.dart';
 import 'translation_service.dart';
 
 /// Local file-based caching for translation and romanization results
@@ -54,6 +55,47 @@ class LyricsCacheService {
     }
   }
 
+  /// Cache key for a song's parsed lyrics.
+  static String getLyricsKey({
+    required String title,
+    required String artist,
+    required Duration duration,
+  }) {
+    return 'lyrics_${title.toLowerCase()}_${artist.toLowerCase()}_${duration.inSeconds}';
+  }
+
+  /// Persists parsed lyric lines so a song is only fetched from the network
+  /// once. This keeps word-by-word lyrics reliable even when upstream APIs
+  /// rate-limit after a few requests.
+  static Future<void> saveLyrics(String key, List<LyricLine> lines) async {
+    if (lines.isEmpty) return;
+    try {
+      final dir = await _getCacheDir();
+      final file = File('${dir.path}/${_sanitizeFileName(key)}.json');
+      await file.writeAsString(
+        jsonEncode(lines.map((l) => l.toJson()).toList()),
+      );
+    } catch (_) {
+      // Non-fatal: a failed cache write just means we refetch next time.
+    }
+  }
+
+  /// Loads cached lyric lines, or null on a miss/parse error.
+  static Future<List<LyricLine>?> loadLyrics(String key) async {
+    try {
+      final dir = await _getCacheDir();
+      final file = File('${dir.path}/${_sanitizeFileName(key)}.json');
+      if (!await file.exists()) return null;
+      final data = jsonDecode(await file.readAsString());
+      if (data is! List || data.isEmpty) return null;
+      return data
+          .map((e) => LyricLine.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Loads a cached translation/romanization result. Returns null on a cache miss or parse error.
   static Future<TranslationResult?> load(String key) async {
     try {
@@ -69,9 +111,11 @@ class LyricsCacheService {
       return TranslationResult(
         translations: List<String>.from(json['translations'] ?? []),
         romanizations: List<String?>.from(json['romanizations'] ?? []),
-        romanizedWords: (json['romanizedWords'] as List?)
-            ?.map((e) => e == null ? null : List<String>.from(e as List))
-            .toList() ?? const [],
+        romanizedWords:
+            (json['romanizedWords'] as List?)
+                ?.map((e) => e == null ? null : List<String>.from(e as List))
+                .toList() ??
+            const [],
         detectedLanguage: json['detectedLanguage'] ?? '',
       );
     } catch (_) {

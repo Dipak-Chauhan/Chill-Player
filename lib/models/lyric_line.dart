@@ -8,6 +8,18 @@ class LyricWord {
     required this.endTime,
     required this.text,
   });
+
+  Map<String, dynamic> toJson() => {
+    's': startTime.inMilliseconds,
+    'e': endTime.inMilliseconds,
+    't': text,
+  };
+
+  factory LyricWord.fromJson(Map<String, dynamic> json) => LyricWord(
+    startTime: Duration(milliseconds: (json['s'] as num?)?.toInt() ?? 0),
+    endTime: Duration(milliseconds: (json['e'] as num?)?.toInt() ?? 0),
+    text: json['t'] as String? ?? '',
+  );
 }
 
 class LyricLine {
@@ -16,6 +28,7 @@ class LyricLine {
   final String text;
   final List<LyricWord>? words;
   final List<LyricLine>? backgroundLines;
+
   /// True if this line is an instrumental gap (no text, shows dots)
   final bool isGap;
   final String? singer;
@@ -31,6 +44,33 @@ class LyricLine {
     this.singer,
     this.singerSide,
   });
+
+  Map<String, dynamic> toJson() => {
+    's': startTime.inMilliseconds,
+    'e': endTime.inMilliseconds,
+    't': text,
+    if (words != null) 'w': words!.map((w) => w.toJson()).toList(),
+    if (backgroundLines != null)
+      'b': backgroundLines!.map((l) => l.toJson()).toList(),
+    if (isGap) 'g': 1,
+    if (singer != null) 'si': singer,
+    if (singerSide != null) 'ss': singerSide,
+  };
+
+  factory LyricLine.fromJson(Map<String, dynamic> json) => LyricLine(
+    startTime: Duration(milliseconds: (json['s'] as num?)?.toInt() ?? 0),
+    endTime: Duration(milliseconds: (json['e'] as num?)?.toInt() ?? 0),
+    text: json['t'] as String? ?? '',
+    words: (json['w'] as List?)
+        ?.map((e) => LyricWord.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    backgroundLines: (json['b'] as List?)
+        ?.map((e) => LyricLine.fromJson(e as Map<String, dynamic>))
+        .toList(),
+    isGap: json['g'] == 1,
+    singer: json['si'] as String?,
+    singerSide: json['ss'] as String?,
+  );
 
   LyricLine copyWith({
     Duration? startTime,

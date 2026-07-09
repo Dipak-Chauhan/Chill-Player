@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/lyric_line.dart';
 import '../services/lrclib_api.dart';
 import '../services/local_lyrics_service.dart';
+import '../services/lyrics_cache_service.dart';
 import '../utils/lrc_parser.dart';
 import '../services/lyrics_plus_api.dart';
 import '../services/unison_api.dart';
@@ -18,6 +19,18 @@ import 'audio_state.dart';
 final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
   final currentSong = ref.watch(currentSongProvider);
   if (currentSong == null) return [];
+
+  // 0. Serve from the persistent cache when available so each song only hits
+  // the network once (upstream lyric APIs rate-limit after a few requests).
+  final cacheKey = LyricsCacheService.getLyricsKey(
+    title: currentSong.title,
+    artist: currentSong.artist,
+    duration: currentSong.duration,
+  );
+  final cached = await LyricsCacheService.loadLyrics(cacheKey);
+  if (cached != null && cached.isNotEmpty) {
+    return cached;
+  }
 
   List<LyricLine> rawLines = [];
 
@@ -269,16 +282,19 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
       }
     }
 
+    List<LyricLine> result = assigned;
     if (totalDuetLines > 0) {
       final double leftRatio = leftCount / totalDuetLines;
       final double rightRatio = rightCount / totalDuetLines;
       if (leftRatio >= 0.85 || rightRatio >= 0.85) {
-        return withGaps;
+        result = withGaps;
       }
     }
-    return assigned;
+    await LyricsCacheService.saveLyrics(cacheKey, result);
+    return result;
   }
 
+  await LyricsCacheService.saveLyrics(cacheKey, withGaps);
   return withGaps;
 });
 
