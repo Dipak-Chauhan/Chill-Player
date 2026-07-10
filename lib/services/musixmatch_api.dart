@@ -63,7 +63,8 @@ class MusixmatchApi {
         ).replace(queryParameters: {'app_id': _appId, 'format': 'json'});
         final resp = await _get(uri);
         if (resp.statusCode == 200) {
-          final body = json.decode(resp.body);
+          final decodedBody = utf8.decode(resp.bodyBytes);
+          final body = json.decode(decodedBody);
           final token = body?['message']?['body']?['user_token'] as String?;
           // Musixmatch returns this sentinel when it wants an upgrade/captcha.
           if (token != null &&
@@ -142,7 +143,8 @@ class MusixmatchApi {
       }
       if (mResp.statusCode != 200) return (authFailed: false, richsync: null);
 
-      final mBody = json.decode(mResp.body);
+      final decodedBody = utf8.decode(mResp.bodyBytes);
+      final mBody = json.decode(decodedBody);
       final inner = _innerStatus(mBody);
       if (inner == 401 || inner == 402) {
         return (authFailed: true, richsync: null);
@@ -150,6 +152,8 @@ class MusixmatchApi {
 
       final track = mBody?['message']?['body']?['track'];
       if (track is! Map) return (authFailed: false, richsync: null);
+      // ignore: avoid_print
+      print('MUSIXMATCH MATCHED: ${track['track_name']} by ${track['artist_name']}');
       if (track['has_richsync'] != 1) {
         return (authFailed: false, richsync: null);
       }
@@ -184,7 +188,8 @@ class MusixmatchApi {
       }
       if (rResp.statusCode != 200) return (authFailed: false, richsync: null);
 
-      final rBody = json.decode(rResp.body);
+      final decodedRichBody = utf8.decode(rResp.bodyBytes);
+      final rBody = json.decode(decodedRichBody);
       final rInner = _innerStatus(rBody);
       if (rInner == 401 || rInner == 402) {
         return (authFailed: true, richsync: null);

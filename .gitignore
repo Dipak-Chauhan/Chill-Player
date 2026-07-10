@@ -51,3 +51,9 @@ android/build/
 graphify-out/
 # DevTools (generated tooling preferences)
 devtools_options.yaml
+
+# Local design/research notes (not published)
+lyricsanimation.md
+
+# Read-only reference clones
+temp/

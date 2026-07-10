@@ -61,7 +61,7 @@ class LyricsCacheService {
     required String artist,
     required Duration duration,
   }) {
-    return 'lyrics_${title.toLowerCase()}_${artist.toLowerCase()}_${duration.inSeconds}';
+    return 'lyrics_v3_${title.toLowerCase()}_${artist.toLowerCase()}_${duration.inSeconds}';
   }
 
   /// Persists parsed lyric lines so a song is only fetched from the network

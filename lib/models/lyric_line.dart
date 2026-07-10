@@ -2,23 +2,27 @@ class LyricWord {
   final Duration startTime;
   final Duration endTime;
   final String text;
+  final String? romanText;
 
   const LyricWord({
     required this.startTime,
     required this.endTime,
     required this.text,
+    this.romanText,
   });
 
   Map<String, dynamic> toJson() => {
     's': startTime.inMilliseconds,
     'e': endTime.inMilliseconds,
     't': text,
+    if (romanText != null) 'r': romanText,
   };
 
   factory LyricWord.fromJson(Map<String, dynamic> json) => LyricWord(
     startTime: Duration(milliseconds: (json['s'] as num?)?.toInt() ?? 0),
     endTime: Duration(milliseconds: (json['e'] as num?)?.toInt() ?? 0),
     text: json['t'] as String? ?? '',
+    romanText: json['r'] as String?,
   );
 }
 

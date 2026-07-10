@@ -38,17 +38,48 @@ subprojects {
                 } catch (e: Exception) {
                     // ignore
                 }
+                try {
+                    val baseExtClass = Class.forName("com.android.build.gradle.BaseExtension")
+                    val getCompileOptionsMethod = baseExtClass.getMethod("getCompileOptions")
+                    val compileOptions = getCompileOptionsMethod.invoke(ext)
+                    
+                    try {
+                        val setSource = compileOptions.javaClass.getMethod("setSourceCompatibility", org.gradle.api.JavaVersion::class.java)
+                        setSource.invoke(compileOptions, org.gradle.api.JavaVersion.VERSION_17)
+                    } catch (e: Exception) {
+                        try {
+                            val setSource = compileOptions.javaClass.getMethod("setSourceCompatibility", Any::class.java)
+                            setSource.invoke(compileOptions, org.gradle.api.JavaVersion.VERSION_17)
+                        } catch (e2: Exception) {
+                            // ignore
+                        }
+                    }
+                    
+                    try {
+                        val setTarget = compileOptions.javaClass.getMethod("setTargetCompatibility", org.gradle.api.JavaVersion::class.java)
+                        setTarget.invoke(compileOptions, org.gradle.api.JavaVersion.VERSION_17)
+                    } catch (e: Exception) {
+                        try {
+                            val setTarget = compileOptions.javaClass.getMethod("setTargetCompatibility", Any::class.java)
+                            setTarget.invoke(compileOptions, org.gradle.api.JavaVersion.VERSION_17)
+                        } catch (e2: Exception) {
+                            // ignore
+                        }
+                    }
+                } catch (e: Exception) {
+                    // ignore
+                }
             }
         }
     }
     
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile>().configureEach {
-        val target = when (project.name) {
-            "app", "path_provider_android", "shared_preferences_android", "wakelock_plus", "wakelock_plus_platform_interface", "package_info_plus", "package_info_plus_platform_interface" -> org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-            "audio_session" -> org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
-            else -> org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8
-        }
-        compilerOptions.jvmTarget.set(target)
+        compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+    
+    tasks.withType<JavaCompile>().configureEach {
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
     }
 }
 

@@ -8,10 +8,18 @@ class LrcParser {
     final lines = lyricsString.split('\n');
     final List<LyricLine> result = [];
     final RegExp timeRegex = RegExp(r'\[(\d+):(\d+\.\d+)\]');
+    final RegExp offsetRegex = RegExp(r'\[offset:\s*(-?\d+)\s*\]');
+    int globalOffsetMs = 0;
 
     for (var i = 0; i < lines.length; i++) {
       final line = lines[i].trim();
       if (line.isEmpty) continue;
+
+      final offsetMatch = offsetRegex.firstMatch(line);
+      if (offsetMatch != null) {
+        globalOffsetMs = int.tryParse(offsetMatch.group(1)!) ?? 0;
+        continue;
+      }
 
       final match = timeRegex.firstMatch(line);
       if (match != null) {
@@ -19,8 +27,9 @@ class LrcParser {
         final minutes = int.parse(match.group(1)!);
         final secondsAndMillis = double.parse(match.group(2)!);
         
-        final totalMilliseconds = (minutes * 60 + secondsAndMillis) * 1000;
-        final startTime = Duration(milliseconds: totalMilliseconds.toInt());
+        final totalMilliseconds = (minutes * 60 + secondsAndMillis) * 1000 + globalOffsetMs;
+        final int finalMs = totalMilliseconds.toInt();
+        final startTime = Duration(milliseconds: finalMs < 0 ? 0 : finalMs);
         
         final text = line.replaceFirst(match.group(0)!, '').trim();
         

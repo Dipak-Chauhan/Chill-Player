@@ -21,7 +21,12 @@ class LrcLibApi {
       // quickly, unlike /search which does slow full-text lookups and often
       // times out on weaker connections. Duration is intentionally omitted:
       // /get treats it as a strict (±2s) filter and 404s on any mismatch.
-      final direct = await _directGet(cleanedTrack, cleanedArtist);
+      // But we verify duration of the returned payload to reject wrong versions.
+      final direct = await _directGet(
+        cleanedTrack,
+        cleanedArtist,
+        targetDuration: duration,
+      );
       if (direct != null) return direct;
 
       final List<dynamic>? data = await _searchApi(cleanedTrack, cleanedArtist);
@@ -143,9 +148,11 @@ class LrcLibApi {
     return null;
   }
 
-  /// Fast lookup via `/api/get`. Returns synced (preferred) or plain lyrics,
-  /// or null if there's no match.
-  static Future<String?> _directGet(String trackName, String artistName) async {
+  static Future<String?> _directGet(
+    String trackName,
+    String artistName, {
+    Duration? targetDuration,
+  }) async {
     try {
       final uri = Uri.parse('$_baseUrl/get').replace(
         queryParameters: {'track_name': trackName, 'artist_name': artistName},
@@ -156,11 +163,31 @@ class LrcLibApi {
       );
 
       if (response.statusCode == 200) {
-        final Map<String, dynamic> obj = jsonDecode(response.body);
+        final decodedBody = utf8.decode(response.bodyBytes);
+        final Map<String, dynamic> obj = jsonDecode(decodedBody);
+        
+        if (targetDuration != null) {
+          final double? candDurationSec = (obj['duration'] as num?)?.toDouble();
+          if (candDurationSec != null && candDurationSec > 0.0) {
+            final double tarDurationSec = targetDuration.inMilliseconds / 1000.0;
+            if ((tarDurationSec - candDurationSec).abs() > 8.0) {
+              return null; // Reject direct get if duration mismatch is too large
+            }
+          }
+        }
+
         final synced = obj['syncedLyrics'] as String?;
         final plain = obj['plainLyrics'] as String?;
-        if (synced != null && synced.isNotEmpty) return synced;
-        if (plain != null && plain.isNotEmpty) return plain;
+        if (synced != null && synced.isNotEmpty) {
+          // ignore: avoid_print
+          print('LRCLIB DIRECT MATCHED: ${obj['trackName']} by ${obj['artistName']} (synced)');
+          return synced;
+        }
+        if (plain != null && plain.isNotEmpty) {
+          // ignore: avoid_print
+          print('LRCLIB DIRECT MATCHED: ${obj['trackName']} by ${obj['artistName']} (plain)');
+          return plain;
+        }
       }
     } catch (e) {
       // ignore: avoid_print
@@ -184,7 +211,8 @@ class LrcLibApi {
     );
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
+      final decodedBody = utf8.decode(response.bodyBytes);
+      final List<dynamic> data = jsonDecode(decodedBody);
       if (data.isNotEmpty) return data;
     }
     return null;
@@ -207,7 +235,8 @@ class LrcLibApi {
       );
 
       if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
+        final decodedBody = utf8.decode(response.bodyBytes);
+        final List<dynamic> data = jsonDecode(decodedBody);
         if (data.isNotEmpty) {
           dynamic bestCandidate;
           int bestScore = -9999;
@@ -227,6 +256,8 @@ class LrcLibApi {
           }
 
           if (bestCandidate != null && bestScore > 0) {
+            // ignore: avoid_print
+            print('LRCLIB SEARCH MATCHED: ${bestCandidate['trackName']} by ${bestCandidate['artistName']} (Score: $bestScore)');
             final synced = bestCandidate['syncedLyrics'] as String?;
             final plain = bestCandidate['plainLyrics'] as String?;
             if (synced != null && synced.isNotEmpty) return synced;
@@ -269,14 +300,14 @@ class LrcLibApi {
         candDurationSec > 0.0) {
       final double tarDurationSec = targetDuration.inMilliseconds / 1000.0;
       final double diff = (tarDurationSec - candDurationSec).abs();
-      if (diff <= 2.0) {
+      if (diff > 8.0) {
+        return -9999; // Reject candidate if duration mismatch is > 8 seconds
+      } else if (diff <= 2.0) {
         score += 80;
       } else if (diff <= 5.0) {
         score += 50;
-      } else if (diff <= 10.0) {
+      } else if (diff <= 8.0) {
         score += 20;
-      } else if (diff > 20.0) {
-        score -= 50; // heavily penalize severe duration mismatches
       }
     }
 
@@ -335,10 +366,10 @@ class LrcLibApi {
       }
     }
 
-    // 4. PREFER SYNCED LYRICS
+    // 4. PREFER SYNCED LYRICS (Massive bonus because we are a word-by-word lyrics player!)
     final String? synced = candidate['syncedLyrics'] as String?;
     if (synced != null && synced.isNotEmpty) {
-      score += 15;
+      score += 150;
     }
 
     return score;

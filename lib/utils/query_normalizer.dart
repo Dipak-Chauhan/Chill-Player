@@ -31,11 +31,9 @@ class LyricQueryNormalizer {
     String a = artist.toLowerCase();
 
     a = a.replaceAll(RegExp(r'\s*-\s*topic\b'), '');
-
-    final splitIndex = a.indexOf(RegExp(r'[\/,\&]'));
-    if (splitIndex != -1) {
-      a = a.substring(0, splitIndex);
-    }
+    a = a.replaceAll(RegExp(r'\s*[\/;]\s*'), ' & ');
+    a = a.replaceAll(RegExp(r'\s+and\s+'), ' & ');
+    a = a.replaceAll(RegExp(r'\s+with\s+'), ' & ');
 
     return a.trim();
   }

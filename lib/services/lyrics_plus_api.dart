@@ -11,7 +11,8 @@ class LyricsPlusApi {
   // line-synced LRCLIB when none respond. Dead hosts (unresolvable DNS /
   // invalid TLS) are kept out so a fetch fails fast.
   static const List<String> _servers = [
-    "https://lyricsplus.prjktla.my.id", // official primary
+    "https://lyricsplus.binimum.org", // official primary working mirror
+    "https://lyricsplus.prjktla.my.id", // community fallback
     "https://lyricsplus.prjktla.workers.dev", // Cloudflare Worker mirror
   ];
 
@@ -56,7 +57,8 @@ class LyricsPlusApi {
         );
 
         if (response.statusCode == 200) {
-          final data = json.decode(response.body);
+          final decodedBody = utf8.decode(response.bodyBytes);
+          final data = json.decode(decodedBody);
           if (data is Map<String, dynamic> &&
               data['lyrics'] is List &&
               (data['lyrics'] as List).isNotEmpty) {

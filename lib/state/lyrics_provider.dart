@@ -1,12 +1,14 @@
 import 'dart:math' as math;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/lyric_line.dart';
+import '../models/song.dart';
 import '../services/lrclib_api.dart';
 import '../services/local_lyrics_service.dart';
 import '../services/lyrics_cache_service.dart';
 import '../utils/lrc_parser.dart';
 import '../services/lyrics_plus_api.dart';
 import '../services/unison_api.dart';
+import '../services/binilyrics_api.dart';
 import '../services/musixmatch_api.dart';
 import '../utils/ttml_parser.dart';
 import '../utils/kpoe_parser.dart';
@@ -34,72 +36,82 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
 
   List<LyricLine> rawLines = [];
 
-  // 1. Try API-fetched lyrics first (default)
-  try {
-    // 1a. Musixmatch richsync — reliable word-by-word (per-word timing) that
-    // works without a browser/Turnstile flow.
-    final richsync = await MusixmatchApi.fetchRichsync(
-      currentSong.title,
-      currentSong.artist,
-      duration: currentSong.duration,
-    );
-    if (richsync != null) {
-      final lines = MusixmatchParser.parseRichsync(richsync);
-      if (lines.isNotEmpty) {
-        rawLines = lines;
-      }
-    }
+  // 1. Try API-fetched lyrics first, isolating each fetch in its own try-catch
+  // so a failure in one provider doesn't abort the search.
 
-    // 1b. Apple-Music-style syllable-synced lyrics from LyricsPlus, using the
-    // /v2 JSON (KPOE) format which carries per-word timing directly.
-    final kpoeData = rawLines.isNotEmpty
-        ? null
-        : await LyricsPlusApi.fetchKpoe(
-            currentSong.title,
-            currentSong.artist,
-            duration: currentSong.duration,
-            album: currentSong.album,
-          );
-    if (kpoeData != null) {
-      final lines = KpoeParser.parse(kpoeData);
-      if (lines.isNotEmpty) {
-        bool isTtmlValid = true;
-
-        // 1. Duration verification (relax to allow for outros: reject only if lyrics exceed song duration by > 20s or are shorter by > 90s)
-        final double songDurationSec =
-            currentSong.duration.inMilliseconds / 1000.0;
-        final double lyricsDurationSec =
-            lines.last.endTime.inMilliseconds / 1000.0;
-        if ((lyricsDurationSec - songDurationSec) > 20.0 ||
-            (songDurationSec - lyricsDurationSec) > 90.0) {
-          isTtmlValid = false;
-        }
-
-        // 2. Language/version verification (Japanese CJK character checks for English tracks)
-        if (isTtmlValid) {
-          final bool playingIsEnglish = currentSong.title
-              .toLowerCase()
-              .contains(RegExp(r'\b(english|eng)\b'));
-          int cjkCount = 0;
-          final int checkLimit = math.min(lines.length, 15);
-          for (int i = 0; i < checkLimit; i++) {
-            if (_hasCJKCharacters(lines[i].text)) {
-              cjkCount++;
-            }
-          }
-          if (playingIsEnglish && cjkCount > 2) {
-            isTtmlValid = false;
-          }
-        }
-
-        if (isTtmlValid) {
+  // 1a. BiniLyrics API — cached high-fidelity syllable-synced Apple Music TTML
+  if (rawLines.isEmpty) {
+    try {
+      final ttmlContent = await BiniLyricsApi.fetchLyrics(
+        currentSong.title,
+        currentSong.artist,
+        duration: currentSong.duration,
+        album: currentSong.album,
+      );
+      if (ttmlContent != null) {
+        final lines = TtmlParser.parse(ttmlContent);
+        if (_validateLyricsLines(lines, currentSong)) {
           rawLines = lines;
+          // ignore: avoid_print
+          print('LYRICS RESOLVED: BiniLyrics (TTML)');
         }
       }
+    } catch (e) {
+      // ignore: avoid_print
+      print('BiniLyrics fetch error: $e');
     }
+  }
 
-    // 1b. Fallback: Attempt synced/syllable/line lyrics from Unison API
-    if (rawLines.isEmpty) {
+  // 1b. LyricsPlus (KPOE) — Apple-Music-style syllable-synced lyrics using /v2 JSON
+  if (rawLines.isEmpty) {
+    try {
+      final kpoeData = await LyricsPlusApi.fetchKpoe(
+        currentSong.title,
+        currentSong.artist,
+        duration: currentSong.duration,
+        album: currentSong.album,
+      );
+      if (kpoeData != null) {
+        // ignore: avoid_print
+        print('LYRICSPLUS KPOE MATCHED: ${kpoeData['title']} by ${kpoeData['artist']}');
+        final lines = KpoeParser.parse(kpoeData);
+        if (_validateLyricsLines(lines, currentSong)) {
+          rawLines = lines;
+          // ignore: avoid_print
+          print('LYRICS RESOLVED: LyricsPlus KPOE');
+        }
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('LyricsPlus fetch error: $e');
+    }
+  }
+
+  // 1c. Musixmatch richsync — reliable fallback word-by-word timing
+  if (rawLines.isEmpty) {
+    try {
+      final richsync = await MusixmatchApi.fetchRichsync(
+        currentSong.title,
+        currentSong.artist,
+        duration: currentSong.duration,
+      );
+      if (richsync != null) {
+        final lines = MusixmatchParser.parseRichsync(richsync);
+        if (lines.isNotEmpty) {
+          rawLines = lines;
+          // ignore: avoid_print
+          print('LYRICS RESOLVED: Musixmatch Richsync');
+        }
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Musixmatch fetch error: $e');
+    }
+  }
+
+  // 1c. Fallback: Attempt synced/syllable/line lyrics from Unison API
+  if (rawLines.isEmpty) {
+    try {
       final unisonData = await UnisonApi.fetchLyrics(
         currentSong.title,
         currentSong.artist,
@@ -107,6 +119,8 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
         album: currentSong.album,
       );
       if (unisonData != null) {
+        // ignore: avoid_print
+        print('UNISON MATCHED: ${unisonData['song']} by ${unisonData['artist']}');
         final lyrics = unisonData['lyrics']!;
         final format = unisonData['format']!;
 
@@ -124,20 +138,27 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
               currentSong.duration.inMilliseconds / 1000.0;
           final double lyricsDurationSec =
               parsedLines.last.endTime.inMilliseconds / 1000.0;
-          if ((lyricsDurationSec - songDurationSec) > 20.0 ||
-              (songDurationSec - lyricsDurationSec) > 90.0) {
+          if ((lyricsDurationSec - songDurationSec) > 8.0 ||
+              (songDurationSec - lyricsDurationSec) > 60.0) {
             isUnisonValid = false;
           }
 
           if (isUnisonValid) {
             rawLines = parsedLines;
+            // ignore: avoid_print
+            print('LYRICS RESOLVED: Unison');
           }
         }
       }
+    } catch (e) {
+      // ignore: avoid_print
+      print('Unison fetch error: $e');
     }
+  }
 
-    // 1c. Fallback to standard line-by-line synced LRC from LRCLib
-    if (rawLines.isEmpty) {
+  // 1d. Fallback to standard line-by-line synced LRC from LRCLib
+  if (rawLines.isEmpty) {
+    try {
       final rawLyrics = await LrcLibApi.fetchLyrics(
         currentSong.title,
         currentSong.artist,
@@ -145,10 +166,13 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
       );
       if (rawLyrics != null && rawLyrics.isNotEmpty) {
         rawLines = LrcParser.parse(rawLyrics);
+        // ignore: avoid_print
+        print('LYRICS RESOLVED: LRCLib Synced');
       }
+    } catch (e) {
+      // ignore: avoid_print
+      print('LRCLib fetch error: $e');
     }
-  } catch (_) {
-    // API failed (no internet, timeout, etc.) — will fall through to local
   }
 
   // 2. Fallback: Use locally saved custom lyrics if API didn't return anything
@@ -309,4 +333,33 @@ bool _hasCJKCharacters(String text) {
     }
   }
   return false;
+}
+
+bool _validateLyricsLines(List<LyricLine> lines, Song currentSong) {
+  if (lines.isEmpty) return false;
+
+  // 1. Duration verification (reject if lyrics exceed song duration by > 8s or are shorter by > 60s)
+  final double songDurationSec = currentSong.duration.inMilliseconds / 1000.0;
+  final double lyricsDurationSec = lines.last.endTime.inMilliseconds / 1000.0;
+  if ((lyricsDurationSec - songDurationSec) > 8.0 ||
+      (songDurationSec - lyricsDurationSec) > 60.0) {
+    return false;
+  }
+
+  // 2. Language/version verification (Japanese CJK character checks for English tracks)
+  final bool playingIsEnglish = currentSong.title
+      .toLowerCase()
+      .contains(RegExp(r'\b(english|eng)\b'));
+  int cjkCount = 0;
+  final int checkLimit = math.min(lines.length, 15);
+  for (int i = 0; i < checkLimit; i++) {
+    if (_hasCJKCharacters(lines[i].text)) {
+      cjkCount++;
+    }
+  }
+  if (playingIsEnglish && cjkCount > 2) {
+    return false;
+  }
+
+  return true;
 }

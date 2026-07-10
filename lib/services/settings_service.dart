@@ -3,7 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 // Provider to hold the SharedPreferences instance
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
-  throw UnimplementedError('sharedPreferencesProvider must be overridden in main.dart');
+  throw UnimplementedError(
+    'sharedPreferencesProvider must be overridden in main.dart',
+  );
 });
 
 // A generic Notifier for SharedPreferences preferences
@@ -75,6 +77,36 @@ final minSongDurationProvider = NotifierProvider<PrefNotifier<int>, int>(() {
 });
 
 /// Whether to start playing when headphones/bluetooth are connected
-final autoPlayOnConnectProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
-  return PrefNotifier<bool>('auto_play_on_connect', false);
+final autoPlayOnConnectProvider = NotifierProvider<PrefNotifier<bool>, bool>(
+  () {
+    return PrefNotifier<bool>('auto_play_on_connect', false);
+  },
+);
+
+/// Manual lyrics sync offset in milliseconds, applied to the playback position
+/// that drives lyric highlighting. Positive shifts lyrics earlier, negative
+/// delays them — compensates for audio-output latency so timing feels exact.
+final lyricsOffsetProvider = NotifierProvider<PrefNotifier<int>, int>(() {
+  return PrefNotifier<int>('lyrics_offset_ms', 0);
+});
+
+class SongLyricsOffsetNotifier extends Notifier<int> {
+  final int songId;
+  SongLyricsOffsetNotifier(this.songId);
+
+  @override
+  int build() {
+    final prefs = ref.watch(sharedPreferencesProvider);
+    return prefs.getInt('lyrics_offset_ms_$songId') ?? 0;
+  }
+
+  void update(int value) {
+    state = value;
+    final prefs = ref.read(sharedPreferencesProvider);
+    prefs.setInt('lyrics_offset_ms_$songId', value);
+  }
+}
+
+final songLyricsOffsetProvider = NotifierProvider.family<SongLyricsOffsetNotifier, int, int>((arg) {
+  return SongLyricsOffsetNotifier(arg);
 });

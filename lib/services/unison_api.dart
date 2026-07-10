@@ -36,7 +36,8 @@ class UnisonApi {
       final response = await ApiClient.get(uri, timeout: const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
+        final decodedBody = utf8.decode(response.bodyBytes);
+        final data = json.decode(decodedBody);
         if (data['success'] == true && data['data'] != null) {
           final lyricsData = data['data'];
           final lyrics = lyricsData['lyrics'] as String?;
@@ -48,6 +49,8 @@ class UnisonApi {
               'lyrics': lyrics,
               'format': (format ?? 'plain').toLowerCase(),
               'syncType': (syncType ?? 'plain').toLowerCase(),
+              'song': (lyricsData['song'] ?? '').toString(),
+              'artist': (lyricsData['artist'] ?? '').toString(),
             };
           }
         }

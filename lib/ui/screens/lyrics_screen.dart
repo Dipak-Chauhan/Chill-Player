@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import '../widgets/m3_loading_indicator.dart';
 import '../widgets/spring_button.dart';
 import 'dart:async';
 import '../../state/audio_state.dart';
+import '../../services/settings_service.dart';
 import '../../state/lyrics_provider.dart';
 import '../../state/translation_state.dart';
 import '../../services/translation_service.dart';
@@ -57,6 +59,10 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
   List<GlobalKey> _lineKeys = [];
   bool _initialScrollDone = false;
   bool _isSeeking = false;
+  // Predictive auto-scroll: the line we've most recently scrolled toward.
+  int _lastScrollTargetIdx = -1;
+  // Manual sync offset (ms) applied to the playback clock for lyric timing.
+  int _lyricsOffsetMs = 0;
   final GlobalKey _columnKey = GlobalKey();
 
   // ── Position ───────────────────────────────────────────────────────────────
@@ -104,7 +110,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     );
 
     _scroll = ScrollController();
-    _activeIdxNotifier.addListener(_animateToActiveLine);
 
     // Initialize local cached player values
     _cachedPosition = _player.position;
@@ -157,12 +162,15 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
           int posMs = rawPos.inMilliseconds;
           if (playing) {
             final elapsed = now - _lastPositionTime;
-            // Limit interpolation to 500ms to avoid runaway drift during buffering/lag
-            if (elapsed >= 0 && elapsed < 500) {
+            // Limit interpolation to 2000ms to avoid runaway drift during buffering/lag
+            if (elapsed >= 0 && elapsed < 2000) {
               final speed = _cachedSpeed;
               posMs = (rawPos.inMilliseconds + elapsed * speed).round();
             }
           }
+
+          // Apply the manual sync offset (compensates audio-output latency).
+          posMs += _lyricsOffsetMs;
 
           _posMs.value = posMs;
 
@@ -171,6 +179,16 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
             final newActive = _calculateActiveIndex(posMs, lines);
             if (newActive != _activeIdxNotifier.value) {
               _activeIdxNotifier.value = newActive;
+            }
+
+            // Predictive auto-scroll: aim at the line that will be active a
+            // little ahead of now, so it's already settled at the anchor by
+            // the time it's sung (matches Apple Music / YouLy+ behaviour).
+            final lookahead = _scrollLookaheadMs(posMs, lines);
+            final scrollIdx = _calculateActiveIndex(posMs + lookahead, lines);
+            if (scrollIdx >= 0 && scrollIdx != _lastScrollTargetIdx) {
+              _lastScrollTargetIdx = scrollIdx;
+              _scrollToLine(scrollIdx);
             }
           }
         }
@@ -193,14 +211,16 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     });
   }
 
-  void _animateToActiveLine() {
-    if (!mounted || _userScrolling || !_scroll.hasClients) return;
-    final activeIdx = _activeIdxNotifier.value;
-    if (activeIdx < 0) return;
+  void _animateToActiveLine() => _scrollToLine(_activeIdxNotifier.value);
+
+  /// Glides the viewport so line [index] sits at the anchor. The first call
+  /// after a (re)load jumps instantly; subsequent calls animate.
+  void _scrollToLine(int index) {
+    if (!mounted || _userScrolling || !_scroll.hasClients || index < 0) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _userScrolling || !_scroll.hasClients) return;
-      final double? targetOffset = _getScrollOffsetFor(activeIdx);
+      final double? targetOffset = _getScrollOffsetFor(index);
       if (targetOffset != null) {
         if (!_initialScrollDone) {
           _scroll.jumpTo(targetOffset);
@@ -208,12 +228,29 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
         } else {
           _scroll.animateTo(
             targetOffset,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOutCubic,
+            duration: const Duration(milliseconds: 800),
+            curve: const DampedSpringCurve(
+              mass: 1.0,
+              stiffness: 100.0,
+              damping: 15.0,
+            ),
           );
         }
       }
     });
+  }
+
+  /// Look-ahead window for predictive scrolling: the gap to the next line,
+  /// clamped to 350–500ms (YouLy+ heuristic).
+  int _scrollLookaheadMs(int posMs, List<LyricLine> lines) {
+    final cur = _calculateActiveIndex(posMs, lines);
+    if (cur >= 0 && cur + 1 < lines.length) {
+      final gap =
+          lines[cur + 1].startTime.inMilliseconds -
+          lines[cur].endTime.inMilliseconds;
+      return gap.clamp(350, 500);
+    }
+    return 350;
   }
 
   double? _getScrollOffsetFor(int index) {
@@ -321,7 +358,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
       SystemUiMode.edgeToEdge,
     ); // Restore status bar
     WakelockPlus.disable(); // Allow screen to sleep again when user leaves
-    _activeIdxNotifier.removeListener(_animateToActiveLine);
     _posSubscription?.cancel();
     _playSubscription?.cancel();
     _speedSubscription?.cancel();
@@ -330,6 +366,111 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     _activeIdxNotifier.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Bottom sheet to nudge the lyric sync offset. Positive = lyrics earlier,
+  /// negative = later. Compensates for audio-output latency.
+  void _showSyncOffsetSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return Consumer(
+          builder: (ctx, ref, child) {
+            final currentSong = ref.watch(currentSongProvider);
+            if (currentSong == null) return const SizedBox.shrink();
+            final offset = ref.watch(songLyricsOffsetProvider(currentSong.id));
+            void setOffset(int value) {
+              ref.read(songLyricsOffsetProvider(currentSong.id).notifier).update(value);
+            }
+
+            String label(int ms) {
+              if (ms == 0) return 'In sync';
+              final sign = ms > 0 ? '+' : '';
+              return '$sign${(ms / 1000).toStringAsFixed(2)}s '
+                  '(${ms > 0 ? 'earlier' : 'later'})';
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Lyrics Sync',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Adjust if lyrics run ahead of or behind the audio.',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _offsetButton(
+                          icon: Icons.remove,
+                          onTap: () => setOffset(offset - 100),
+                        ),
+                        Column(
+                          children: [
+                            Text(
+                              label(offset),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (offset != 0)
+                              TextButton(
+                                onPressed: () => setOffset(0),
+                                child: const Text('Reset'),
+                              ),
+                          ],
+                        ),
+                        _offsetButton(
+                          icon: Icons.add,
+                          onTap: () => setOffset(offset + 100),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _offsetButton({required IconData icon, required VoidCallback onTap}) {
+    return InkResponse(
+      onTap: onTap,
+      radius: 36,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.1),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 28),
+      ),
+    );
   }
 
   void _showTranslationMenu() {
@@ -371,7 +512,12 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
 
   @override
   Widget build(BuildContext context) {
-    ref.watch(currentSongProvider);
+    final currentSong = ref.watch(currentSongProvider);
+    final globalOffset = ref.watch(lyricsOffsetProvider);
+    final songSpecificOffset = currentSong != null
+        ? ref.watch(songLyricsOffsetProvider(currentSong.id))
+        : 0;
+    _lyricsOffsetMs = globalOffset + songSpecificOffset;
 
     // Show floating snackbar on translation/romanization errors
     ref.listen<String?>(translationErrorProvider, (previous, next) {
@@ -390,6 +536,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     ref.listen<Song?>(currentSongProvider, (previous, next) {
       if (next != previous) {
         _initialScrollDone = false;
+        _lastScrollTargetIdx = -1;
         setState(() {
           _lineKeys = [];
         });
@@ -939,6 +1086,15 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                 ),
                 IconButton(
                   icon: const Icon(
+                    Icons.av_timer,
+                    color: Colors.white70,
+                    size: 22,
+                  ),
+                  tooltip: 'Lyrics Sync',
+                  onPressed: _showSyncOffsetSheet,
+                ),
+                IconButton(
+                  icon: const Icon(
                     Icons.refresh,
                     color: Colors.white70,
                     size: 24,
@@ -1393,16 +1549,33 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
     super.initState();
     _scaleCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600), // Extended for spring settle
+      lowerBound: -double.infinity,
+      upperBound: double.infinity,
     );
-    if (widget.isActive) _scaleCtrl.value = 1.0;
+    _scaleCtrl.value = widget.isActive ? 1.0 : 0.0;
   }
 
   @override
   void didUpdateWidget(_LyricLineWidget old) {
     super.didUpdateWidget(old);
-    if (widget.isActive && !old.isActive) _scaleCtrl.forward();
-    if (!widget.isActive && old.isActive) _scaleCtrl.reverse();
+    if (widget.isActive && !old.isActive) {
+      final sim = SpringSimulation(
+        const SpringDescription(mass: 1.0, stiffness: 100.0, damping: 20.0),
+        _scaleCtrl.value,
+        1.0,
+        _scaleCtrl.velocity,
+      );
+      _scaleCtrl.animateWith(sim);
+    }
+    if (!widget.isActive && old.isActive) {
+      final sim = SpringSimulation(
+        const SpringDescription(mass: 1.0, stiffness: 100.0, damping: 20.0),
+        _scaleCtrl.value,
+        0.0,
+        _scaleCtrl.velocity,
+      );
+      _scaleCtrl.animateWith(sim);
+    }
   }
 
   @override
@@ -1448,7 +1621,7 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
         child: AnimatedBuilder(
           animation: _scaleCtrl,
           builder: (ctx, child) {
-            final t = Curves.easeOutCubic.transform(_scaleCtrl.value);
+            final t = _scaleCtrl.value;
             final scale = _kScaleOff + (_kScaleActive - _kScaleOff) * t;
             final translateY = -4.0 * t;
             return Transform.translate(
@@ -1465,22 +1638,30 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
       ),
     );
 
-    if (widget.blur > 0.05) {
-      core = ImageFiltered(
-        imageFilter: ImageFilter.blur(
-          sigmaX: widget.blur,
-          sigmaY: widget.blur,
-          tileMode: TileMode.decal,
-        ),
-        child: core,
-      );
-    }
-
-    return AnimatedOpacity(
-      opacity: widget.opacity,
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: widget.blur, end: widget.blur),
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
-      child: core,
+      builder: (context, blurValue, child) {
+        Widget result = child!;
+        if (blurValue > 0.05) {
+          result = ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: blurValue,
+              sigmaY: blurValue,
+              tileMode: TileMode.decal,
+            ),
+            child: result,
+          );
+        }
+        return result;
+      },
+      child: AnimatedOpacity(
+        opacity: widget.opacity,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        child: core,
+      ),
     );
   }
 
@@ -1500,7 +1681,7 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
       crossAxisAlignment: crossAlign,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (widget.isActive && (widget.line.words?.isNotEmpty ?? false))
+        if (widget.line.words?.isNotEmpty ?? false)
           _WordByWordLine(
             line: widget.line,
             posMs: widget.posMs,
@@ -1516,39 +1697,32 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
             textAlign: textAlign,
           ),
 
-        // Background vocals collapse
+        // Background vocals
         if (widget.line.backgroundLines != null)
-          AnimatedSize(
-            duration: const Duration(milliseconds: 350),
-            curve: Curves.easeInOut,
-            child: widget.isActive
-                ? AnimatedOpacity(
-                    opacity: widget.isActive ? 0.70 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: Column(
-                      crossAxisAlignment: crossAlign,
-                      children: [
-                        for (final bg in widget.line.backgroundLines!)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: (bg.words?.isNotEmpty ?? false)
-                                ? _WordByWordLine(
-                                    line: bg,
-                                    posMs: widget.posMs,
-                                    isBackground: true,
-                                    alignment: wrapAlign,
-                                  )
-                                : _StaticText(
-                                    text: bg.text,
-                                    isBackground: true,
-                                    isActive: widget.isActive,
-                                    textAlign: textAlign,
-                                  ),
+          Opacity(
+            opacity: 0.70,
+            child: Column(
+              crossAxisAlignment: crossAlign,
+              children: [
+                for (final bg in widget.line.backgroundLines!)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: (bg.words?.isNotEmpty ?? false)
+                        ? _WordByWordLine(
+                            line: bg,
+                            posMs: widget.posMs,
+                            isBackground: true,
+                            alignment: wrapAlign,
+                          )
+                        : _StaticText(
+                            text: bg.text,
+                            isBackground: true,
+                            isActive: widget.isActive,
+                            textAlign: textAlign,
                           ),
-                      ],
-                    ),
-                  )
-                : const SizedBox(width: double.infinity, height: 0),
+                  ),
+              ],
+            ),
           ),
 
         // Romanization
@@ -1622,38 +1796,50 @@ class _StaticText extends StatelessWidget {
       letterSpacing: -0.3,
     );
 
-    if (!isActive) {
-      return Text(text, textAlign: textAlign, style: baseStyle);
-    }
-
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: 2.0,
-            sigmaY: 2.0,
-            tileMode: TileMode.decal,
-          ),
-          child: Text(
-            text,
-            textAlign: textAlign,
-            style: baseStyle.copyWith(color: Colors.white38),
-          ),
-        ),
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: 5.0,
-            sigmaY: 5.0,
-            tileMode: TileMode.decal,
-          ),
-          child: Text(
-            text,
-            textAlign: textAlign,
-            style: baseStyle.copyWith(color: Colors.white24),
+        AnimatedOpacity(
+          opacity: isActive ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: 2.0,
+              sigmaY: 2.0,
+              tileMode: TileMode.decal,
+            ),
+            child: Text(
+              text,
+              textAlign: textAlign,
+              style: baseStyle.copyWith(color: Colors.white38),
+            ),
           ),
         ),
-        Text(text, textAlign: textAlign, style: baseStyle),
+        AnimatedOpacity(
+          opacity: isActive ? 1.0 : 0.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+              sigmaX: 5.0,
+              sigmaY: 5.0,
+              tileMode: TileMode.decal,
+            ),
+            child: Text(
+              text,
+              textAlign: textAlign,
+              style: baseStyle.copyWith(color: Colors.white24),
+            ),
+          ),
+        ),
+        Text(
+          text,
+          textAlign: textAlign,
+          style: baseStyle.copyWith(
+            color: isActive ? Colors.white : Colors.white.withValues(alpha: 0.35),
+          ),
+        ),
       ],
     );
   }
@@ -1864,6 +2050,7 @@ class _WordByWordLineState extends State<_WordByWordLine> {
           startTime: current.startTime,
           endTime: snapEnd,
           text: current.text,
+          romanText: current.romanText,
         ),
       );
     }
@@ -1878,9 +2065,9 @@ class _WordByWordLineState extends State<_WordByWordLine> {
       children: List.generate(_words.length, (i) {
         final word = _words[i];
         final String? wordRoman =
-            widget.romanWords != null && i < widget.romanWords!.length
+            (widget.romanWords != null && i < widget.romanWords!.length)
             ? widget.romanWords![i]
-            : null;
+            : word.romanText;
 
         return _SmoothWord(
           text: word.text,
@@ -2023,14 +2210,31 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     if (widget.isBackground) return false;
     final trimmed = widget.text.trim();
     if (trimmed.isEmpty) return false;
-    if (_isCJK(trimmed) || _isRTL(trimmed)) return false;
-    if (trimmed.characters.length > 7) return false;
+    if (_isCJK(trimmed) || _isRTL(trimmed) || _isComplexScript(trimmed)) return false;
+    if (trimmed.characters.length < 3 || trimmed.characters.length > 7) return false;
     if (widget.durationMs < 1000) return false;
     return true;
   }
 
+  bool _isComplexScript(String text) {
+    for (int i = 0; i < text.length; i++) {
+      final code = text.codeUnitAt(i);
+      // Devanagari & Indic scripts: 0x0900 to 0x0D7F
+      if (code >= 0x0900 && code <= 0x0D7F) return true;
+      // Arabic & Persian: 0x0600 to 0x08FF
+      if (code >= 0x0600 && code <= 0x08FF) return true;
+      // Thai: 0x0E00 to 0x0E7F
+      if (code >= 0x0E00 && code <= 0x0E7F) return true;
+      // Khmer: 0x1780 to 0x17FF
+      if (code >= 0x1780 && code <= 0x17FF) return true;
+      // Myanmar (Burmese): 0x1000 to 0x109F
+      if (code >= 0x1000 && code <= 0x109F) return true;
+    }
+    return false;
+  }
+
   Widget _buildStaticWord(TextStyle baseStyle, {required double progress}) {
-    if (widget.isBackground) {
+    if (widget.isBackground || !_isGrowable()) {
       return _buildSweptStaticWord(baseStyle, progress);
     }
 
@@ -2126,76 +2330,88 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     final double fs = widget.isBackground ? _kFontMain * 0.60 : _kFontMain;
     final double alpha = widget.isBackground ? 0.22 : 0.28;
 
-    // Style for the bottom (inactive/dim) layer: no shadows, white with alpha
-    final bottomStyle = baseStyle.copyWith(
+    final style = baseStyle.copyWith(
       fontSize: fs,
-      color: Colors.white.withValues(alpha: alpha),
+      color: Colors.white,
       shadows: const [],
     );
 
-    // Style for the top (active/glowing) layer: has shadows, full white text
-    final topStyle = baseStyle.copyWith(fontSize: fs, color: Colors.white);
-
-    final Widget bottomWordText = Text(widget.text, style: bottomStyle);
-    Widget bottomBlock;
-    if (widget.romanText == null || widget.romanText!.trim().isEmpty) {
-      bottomBlock = bottomWordText;
-    } else {
-      final bottomRomanStyle = bottomStyle.copyWith(
-        fontSize: bottomStyle.fontSize! * 0.60,
-        fontStyle: FontStyle.italic,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.0,
-        height: 1.3,
-      );
-      bottomBlock = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          bottomWordText,
-          Text(widget.romanText!, style: bottomRomanStyle),
-        ],
-      );
-    }
-
-    final Widget topWordText = _buildTextWithGlow(widget.text, topStyle);
-    Widget topBlock;
-    if (widget.romanText == null || widget.romanText!.trim().isEmpty) {
-      topBlock = topWordText;
-    } else {
-      final topRomanStyle = topStyle.copyWith(
-        fontSize: topStyle.fontSize! * 0.60,
-        fontStyle: FontStyle.italic,
-        fontWeight: FontWeight.w500,
-        letterSpacing: 0.0,
-        height: 1.3,
-      );
-      final Widget topRomanText = _buildTextWithGlow(
-        widget.romanText!,
-        topRomanStyle,
-      );
-      topBlock = Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [topWordText, topRomanText],
-      );
-    }
-
     if (progress <= 0.0) {
-      return bottomBlock;
+      final dimStyle = style.copyWith(color: Colors.white.withValues(alpha: alpha));
+      if (widget.romanText == null || widget.romanText!.trim().isEmpty) {
+        return Text(widget.text, style: dimStyle);
+      } else {
+        final dimRomanStyle = dimStyle.copyWith(
+          fontSize: dimStyle.fontSize! * 0.60,
+          fontStyle: FontStyle.italic,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.0,
+          height: 1.3,
+        );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(widget.text, style: dimStyle),
+            Text(widget.romanText!, style: dimRomanStyle),
+          ],
+        );
+      }
     } else if (progress >= 1.0) {
-      return topBlock;
+      if (widget.romanText == null || widget.romanText!.trim().isEmpty) {
+        return Text(widget.text, style: style);
+      } else {
+        final romanStyle = style.copyWith(
+          fontSize: style.fontSize! * 0.60,
+          fontStyle: FontStyle.italic,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.0,
+          height: 1.3,
+        );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(widget.text, style: style),
+            Text(widget.romanText!, style: romanStyle),
+          ],
+        );
+      }
     } else {
-      return Stack(
-        clipBehavior: Clip.none,
-        children: [
-          bottomBlock,
-          ClipRect(
-            clipper: _HorizontalPercentClipper(progress),
-            child: topBlock,
-          ),
-        ],
-      );
+      if (widget.romanText == null || widget.romanText!.trim().isEmpty) {
+        return GradientTextWidget(
+          text: widget.text,
+          style: style,
+          progress: progress,
+          alpha: alpha,
+        );
+      } else {
+        final romanStyle = style.copyWith(
+          fontSize: style.fontSize! * 0.60,
+          fontStyle: FontStyle.italic,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.0,
+          height: 1.3,
+        );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            GradientTextWidget(
+              text: widget.text,
+              style: style,
+              progress: progress,
+              alpha: alpha,
+            ),
+            GradientTextWidget(
+              text: widget.romanText!,
+              style: romanStyle,
+              progress: progress,
+              alpha: alpha,
+            ),
+          ],
+        );
+      }
     }
   }
 
@@ -2206,7 +2422,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     Color glowColor,
     double glowDecay,
   ) {
-    if (widget.isBackground) {
+    if (widget.isBackground || !_isGrowable()) {
       final int posMs = widget.posMs.value;
       final double progress = (posMs - widget.wordStartMs) / widget.durationMs;
       final double p = progress.clamp(0.0, 1.0);
@@ -2262,10 +2478,8 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
           pChar = (charElapsedMs / charSweepDurationMs).clamp(0.0, 1.0);
         }
 
-        // Character grow timing
-        final double charDelayMs = _baseDelayPerChar * i;
-        final double charGrowElapsedMs = elapsedMs - charDelayMs;
-
+        // Character grow timing: starts exactly when the character is hit by the highlight wipe
+        final double charGrowElapsedMs = posMs - charStartMs;
         double tChar = 0.0;
         if (charGrowElapsedMs >= 0) {
           tChar = (charGrowElapsedMs / _growDurationMs).clamp(0.0, 1.0);
@@ -2276,17 +2490,17 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         final double decayFactor = 1.0 - positionInWord * maxDecayRate;
         final double charProgress = easedProgress * penaltyFactor * decayFactor;
 
-        final double baseGrowth = numChars <= 3 ? 0.07 : 0.05;
-        final double charMaxScale = 1.0 + baseGrowth + charProgress * 0.1;
+        final double baseGrowth = numChars <= 3 ? 0.04 : 0.03;
+        final double charMaxScale = 1.0 + baseGrowth + charProgress * 0.06;
         final double charShadowIntensity = 0.4 + charProgress * 0.4;
-        final double normalizedGrowth = (charMaxScale - 1.0) / 0.13;
+        final double normalizedGrowth = (charMaxScale - 1.0) / 0.10;
         final double charTranslateYPeak =
-            -normalizedGrowth * 6.0; // in pixels (e.g. -6px)
+            -normalizedGrowth * 4.0; // in pixels (e.g. -4px)
 
         // horizontal offset based on character relative position (approximate index)
         final double charPct = numChars > 1 ? i / (numChars - 1) : 0.0;
         final double horizontalOffsetPixels =
-            (charPct - 0.5) * 2.0 * (charMaxScale - 1.0) * 28.0;
+            (charPct - 0.5) * 2.0 * (charMaxScale - 1.0) * 18.0;
 
         double scale = 1.0;
         double translateY = 0.0;
@@ -2452,8 +2666,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
     double glowDecay = 0.0;
 
     if (_currentState == _WordAnimState.animating) {
-      // 1. Subtle Wobble animation (1.0s duration) - reduced bounds for a soft organic pop
-      const double wobbleDurationMs = 1000.0;
+      final double wobbleDurationMs = math.min(1000.0, widget.durationMs * 1.5);
       final double tWobble = (elapsedMs / wobbleDurationMs).clamp(0.0, 1.0);
       if (tWobble < 0.125) {
         final double segmentT = tWobble / 0.125;
@@ -2480,22 +2693,10 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
       final double progress =
           (widget.posMs.value - widget.wordStartMs) / widget.durationMs;
       final double p = progress.clamp(0.0, 1.0);
-      final List<Shadow>? staticGlow = glowDecay > 0.01
-          ? [
-              Shadow(
-                color: Colors.white.withValues(alpha: glowDecay * 0.95),
-                blurRadius: 8.0,
-              ),
-              Shadow(
-                color: Colors.white.withValues(alpha: glowDecay * 0.60),
-                blurRadius: 20.0,
-              ),
-            ]
-          : null;
-      final styleWithGlow = staticGlow != null
-          ? baseStyle.copyWith(shadows: staticGlow)
-          : baseStyle;
-      childWidget = _buildSweptStaticWord(styleWithGlow, p);
+      // Note: no glow shadows here — the soft-edge ShaderMask wipe clips to the
+      // glyph box, so any shadow overflow would show as a hard rectangle around
+      // the active word. Glow stays on the emphasized (growable) char path.
+      childWidget = _buildSweptStaticWord(baseStyle, p);
     } else if (_currentState == _WordAnimState.future) {
       _staticFutureWidget ??= _buildStaticWord(baseStyle, progress: 0.0);
       childWidget = _staticFutureWidget!;
@@ -2860,3 +3061,131 @@ class _HorizontalPercentClipper extends CustomClipper<Rect> {
   bool shouldReclip(_HorizontalPercentClipper oldClipper) =>
       oldClipper.percent != percent;
 }
+
+class DampedSpringCurve extends Curve {
+  final double damping;
+  final double stiffness;
+  final double mass;
+
+  const DampedSpringCurve({
+    this.mass = 1.0,
+    this.stiffness = 100.0,
+    this.damping = 15.0,
+  });
+
+  @override
+  double transformInternal(double t) {
+    if (t == 0.0) return 0.0;
+    if (t == 1.0) return 1.0;
+
+    final double time = t * 0.8;
+
+    final double w0 = math.sqrt(stiffness / mass);
+    final double beta = damping / (2.0 * mass);
+
+    if (beta < w0) {
+      final double omega = math.sqrt(w0 * w0 - beta * beta);
+      final double envelope = math.exp(-beta * time);
+      final double oscillation =
+          math.cos(omega * time) + (beta / omega) * math.sin(omega * time);
+      return 1.0 - envelope * oscillation;
+    } else {
+      return 1.0 - math.exp(-10.0 * time);
+    }
+  }
+}
+
+class GradientTextWidget extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+  final double progress;
+  final double alpha;
+
+  const GradientTextWidget({
+    super.key,
+    required this.text,
+    required this.style,
+    required this.progress,
+    required this.alpha,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final defaultStyle = DefaultTextStyle.of(context).style;
+    final resolvedStyle = defaultStyle.merge(style);
+
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: resolvedStyle),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+
+    return CustomPaint(
+      size: Size(textPainter.width, textPainter.height),
+      painter: GradientTextPainter(
+        text: text,
+        style: resolvedStyle,
+        progress: progress,
+        alpha: alpha,
+      ),
+    );
+  }
+}
+
+class GradientTextPainter extends CustomPainter {
+  final String text;
+  final TextStyle style;
+  final double progress;
+  final double alpha;
+
+  GradientTextPainter({
+    required this.text,
+    required this.style,
+    required this.progress,
+    required this.alpha,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textPainter = TextPainter(
+      text: TextSpan(text: text, style: style.copyWith(color: Colors.white)),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout(minWidth: 0, maxWidth: size.width);
+
+    final rect = Rect.fromLTWH(0, 0, textPainter.width, textPainter.height);
+
+    const double feather = 0.12;
+    final double s0 = (progress - feather * 0.5).clamp(0.0, 1.0);
+    double s1 = (progress + feather * 0.5).clamp(0.0, 1.0);
+    if (s1 <= s0) s1 = (s0 + 0.001).clamp(0.0, 1.0);
+
+    final paint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.centerLeft,
+        end: Alignment.centerRight,
+        colors: [
+          Colors.white,
+          Colors.white,
+          Colors.white.withValues(alpha: alpha),
+        ],
+        stops: [0.0, s0, s1],
+      ).createShader(rect);
+
+    textPainter.text = TextSpan(
+      text: text,
+      style: style.copyWith(foreground: paint),
+    );
+    textPainter.layout(minWidth: 0, maxWidth: size.width);
+    textPainter.paint(canvas, Offset.zero);
+  }
+
+  @override
+  bool shouldRepaint(covariant GradientTextPainter oldDelegate) {
+    return oldDelegate.text != text ||
+        oldDelegate.progress != progress ||
+        oldDelegate.style != style ||
+        oldDelegate.alpha != alpha;
+  }
+}
+
