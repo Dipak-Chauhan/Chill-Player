@@ -83,6 +83,6 @@ This project was built with the help of, and inspired by, the following amazing 
 
 - [better-lyrics](https://github.com/better-lyrics/better-lyrics) — Synced lyrics parsing and implementation guidance.
 - [YouLyPlus](https://github.com/ibratabian17/YouLyPlus) — Apple Music-style lyrics UI animation and gradient wipe logic.
-- [monochrome](https://github.com/monochrome-music/monochrome) — Music visualizer design reference.
+- [monochrome](https://github.com/monochrome-music/monochrome) — Apple Music TTML reference.
 - [am-lyrics](https://github.com/binimum/am-lyrics) — Apple Music styling and alignment structures.
 
