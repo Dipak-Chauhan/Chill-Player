@@ -15,9 +15,7 @@ import '../utils/kpoe_parser.dart';
 import '../utils/musixmatch_parser.dart';
 import 'audio_state.dart';
 
-// ---------------------------------------------------------------------------
 // Lyrics Provider
-// ---------------------------------------------------------------------------
 final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
   final currentSong = ref.watch(currentSongProvider);
   if (currentSong == null) return [];
@@ -109,7 +107,6 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
     }
   }
 
-  // 1c. Fallback: Attempt synced/syllable/line lyrics from Unison API
   if (rawLines.isEmpty) {
     try {
       final unisonData = await UnisonApi.fetchLyrics(
@@ -156,7 +153,6 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
     }
   }
 
-  // 1d. Fallback to standard line-by-line synced LRC from LRCLib
   if (rawLines.isEmpty) {
     try {
       final rawLyrics = await LrcLibApi.fetchLyrics(
@@ -175,7 +171,6 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
     }
   }
 
-  // 2. Fallback: Use locally saved custom lyrics if API didn't return anything
   if (rawLines.isEmpty) {
     final localLyrics = await LocalLyricsService.loadLyrics(currentSong.id);
     if (localLyrics != null && localLyrics.isNotEmpty) {

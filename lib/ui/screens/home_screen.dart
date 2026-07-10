@@ -112,7 +112,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       });
     }
 
-    // 1. Try Fast Instant Load from Cache natively in isolate
     final cachedLibrary = await LibraryCacheService.loadLibraryAsync(prefs);
     if (cachedLibrary != null && cachedLibrary.isNotEmpty) {
       ref.read(globalLibraryProvider.notifier).setLibrary(cachedLibrary);
@@ -122,12 +121,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       // The providers (smartAlbumProvider, smartArtistProvider) will automatically update when globalLibraryProvider updates
 
       // UI is already mounted and isLoading is false from step 0.
-      // 2. Silently sync any new songs in the background
       _syncLibraryBackground(prefs);
       return;
     }
 
-    // 3. Fallback: Full loading screen if no cache is found (first launch)
     if (mounted) {
       setState(() {
         _isLoading = true;
@@ -294,7 +291,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
             ),
             
-            // Custom floating glassmorphic SearchBar
             AnimatedBuilder(
               animation: Listenable.merge([_showSearchBarNotifier, _isScrolledNotifier]),
               builder: (context, child) {
@@ -382,7 +378,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             
-            // Mini Player
             if (selectedSong != null)
               Positioned(
                 left: 12,
@@ -391,7 +386,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: const MiniPlayerHero(),
               ),
               
-            // Floating Shuffle Button
             if (_bottomNavIndex == 1)
               Positioned(
                 right: 16,
@@ -409,10 +403,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         final library = ref.read(globalLibraryProvider);
                         if (library.isEmpty) return;
 
-                        // 1. Enable shuffle mode state
                         await ref.read(shuffleModeProvider.notifier).setShuffle(true);
 
-                        // 2. Select a random song to play first, and shuffle the rest
                         final randomIndex = math.Random().nextInt(library.length);
                         await ref.read(queueProvider.notifier).setQueue(
                           library,
@@ -489,7 +481,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return ListView(
       padding: EdgeInsets.fromLTRB(16, 88.0 + topPadding, 16, 120.0),
       children: [
-        // AI Daily Mix Card with premium gradient background, shadows and slide animation
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -599,7 +590,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         const SizedBox(height: 32),
 
-        // Recently Played Horizontal Scroll
         if (recentSongs.isNotEmpty) ...[
           Row(
             children: [
@@ -696,7 +686,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
         const SizedBox(height: 32),
 
-        // Quick Stats row
         Row(
           children: [
             Expanded(
@@ -1144,7 +1133,6 @@ class _VenomNavigationBarState extends State<VenomNavigationBar> {
           color: Colors.transparent, // Background handled by parent backdrop filter directly via BackdropFilter wrapper
           child: Stack(
             children: [
-              // Liquid Stretch Indicator
               Positioned(
                 left: leftPx,
                 top: 14,
@@ -1158,7 +1146,6 @@ class _VenomNavigationBarState extends State<VenomNavigationBar> {
                 ),
               ),
               
-              // Touch Interaction Targets
               Row(
                 children: [
                   _buildIcon(0, Icons.home_outlined, Icons.home, "Home"),

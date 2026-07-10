@@ -187,7 +187,6 @@ class _ScanMediaDialogState extends ConsumerState<_ScanMediaDialog> {
       final hasPermission = await audioQuery.checkAndRequest(retryRequest: true);
       if (hasPermission) {
         
-        // Let UI update
         await Future.delayed(const Duration(milliseconds: 300));
 
         _update(0.3, "Extracting library data...");

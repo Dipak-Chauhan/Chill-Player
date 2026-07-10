@@ -224,7 +224,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       padding: const EdgeInsets.only(bottom: 150),
       itemCount: totalCount,
       itemBuilder: (context, index) {
-        // Songs section
         if (songs.isNotEmpty) {
           if (index == songHeaderIdx) {
             return _buildSectionHeader('SONGS', songs.length);
@@ -234,7 +233,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             return _buildSongTile(songs[songIdx], songs);
           }
         }
-        // Albums section
         if (albums.isNotEmpty) {
           if (index == albumHeaderIdx) {
             return _buildSectionHeader('ALBUMS', albums.length);
@@ -244,7 +242,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             return _buildAlbumTile(albums[albumIdx]);
           }
         }
-        // Artists section
         if (artists.isNotEmpty) {
           if (index == artistHeaderIdx) {
             return _buildSectionHeader('ARTISTS', artists.length);

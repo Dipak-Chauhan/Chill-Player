@@ -12,9 +12,6 @@ import '../../widgets/spring_button.dart';
 import '../../widgets/frosted_glass.dart';
 import '../../widgets/list_entrance_animation.dart';
 
-// ---------------------------------------------------------------------------
-// Playlist Model & Persistence
-// ---------------------------------------------------------------------------
 class Playlist {
   final String id;
   String name;
@@ -119,9 +116,6 @@ class PlaylistsNotifier extends Notifier<List<Playlist>> {
 
 final playlistsProvider = NotifierProvider<PlaylistsNotifier, List<Playlist>>(PlaylistsNotifier.new);
 
-// ---------------------------------------------------------------------------
-// Cover Art Collage Widget
-// ---------------------------------------------------------------------------
 class _PlaylistCollage extends StatelessWidget {
   final List<int> songIds;
   final double borderRadius;
@@ -252,9 +246,7 @@ class _PlaylistCollage extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Playlists Screen
-// ---------------------------------------------------------------------------
 class PlaylistsScreen extends ConsumerWidget {
   const PlaylistsScreen({super.key});
 
@@ -546,9 +538,6 @@ class PlaylistsScreen extends ConsumerWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Playlist Detail Screen
-// ---------------------------------------------------------------------------
 class _PlaylistDetailScreen extends ConsumerWidget {
   final Playlist playlist;
 
@@ -1006,9 +995,6 @@ class _PlaylistDetailScreen extends ConsumerWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Search Input Bar Helper
-// ---------------------------------------------------------------------------
 class _SearchInputBar extends StatefulWidget {
   final ValueChanged<String> onChanged;
   static String currentQuery = '';

@@ -274,7 +274,7 @@ class TranslationService {
     return ratio > 0.08;
   }
 
-  // ── Private helpers ──
+  // Private helpers
 
   static String _key(String title, String artist, String action, String lang) =>
       '${title.toLowerCase()}|${artist.toLowerCase()}|$action|$lang';
@@ -450,7 +450,7 @@ class TranslationService {
     return results;
   }
 
-  // ── Google Translate API ──
+  // Google Translate API
 
   static Future<_BatchResult> _batchTranslate(List<String> texts, String targetLang) async {
     final chunks = _chunk(texts, 1200);

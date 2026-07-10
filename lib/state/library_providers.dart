@@ -2,9 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/song.dart';
 import '../services/artwork_cache.dart';
 
-// ---------------------------------------------------------------------------
 // Library & Sorting
-// ---------------------------------------------------------------------------
 enum LibrarySortType { title, artist, album, duration }
 
 class GlobalLibraryNotifier extends Notifier<List<Song>> {

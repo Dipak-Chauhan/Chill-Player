@@ -45,7 +45,6 @@ class PrefNotifier<T> extends Notifier<T> {
   }
 }
 
-// Global settings providers
 final themeModeProvider = NotifierProvider<PrefNotifier<String>, String>(() {
   return PrefNotifier<String>('theme_mode', 'system');
 });

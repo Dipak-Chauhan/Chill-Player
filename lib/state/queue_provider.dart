@@ -9,11 +9,9 @@ import '../services/playback_persistence.dart';
 import 'audio_engine.dart';
 import 'playback_status.dart';
 
-// ---------------------------------------------------------------------------
 // Playback "firewall" — temporarily masks transient just_audio ExoPlayer
 // stream emissions during large native playlist swaps so the UI doesn't flicker
 // through intermediate indices.
-// ---------------------------------------------------------------------------
 class IsSwappingPlaylistNotifier extends Notifier<bool> {
   @override
   bool build() => false;
@@ -37,9 +35,7 @@ final expectedPlayerIndexProvider =
       ExpectedPlayerIndexNotifier.new,
     );
 
-// ---------------------------------------------------------------------------
 // Queue Management
-// ---------------------------------------------------------------------------
 class QueueNotifier extends Notifier<List<Song>> {
   List<Song> _originalQueue = [];
 
@@ -278,9 +274,7 @@ final queueProvider = NotifierProvider<QueueNotifier, List<Song>>(
   QueueNotifier.new,
 );
 
-// ---------------------------------------------------------------------------
 // Shuffle (drives the queue's enable/disable shuffle reordering)
-// ---------------------------------------------------------------------------
 class ShuffleModeNotifier extends Notifier<bool> {
   @override
   bool build() {

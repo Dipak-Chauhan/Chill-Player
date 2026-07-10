@@ -55,7 +55,6 @@ class ChillPlayerApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch the new color scheme notifier
     final colorSchemeState = ref.watch(colorSchemeProvider);
     final hasSong = ref.watch(currentSongProvider.select((s) => s != null));
     final themeModeStr = ref.watch(themeModeProvider);

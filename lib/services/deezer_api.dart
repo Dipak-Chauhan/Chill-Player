@@ -48,9 +48,7 @@ class DeezerApi {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Persistent disk cache for Deezer artist images
-// ---------------------------------------------------------------------------
 class _DeezerImageCache {
   static Directory? _cacheDir;
 
@@ -105,9 +103,7 @@ class _DeezerImageCache {
   }
 }
 
-// ---------------------------------------------------------------------------
 // In-memory LRU cache for artist images (avoids disk reads on scroll)
-// ---------------------------------------------------------------------------
 class _MemoryArtistCache {
   static const int _maxEntries = 80;
   static final Map<String, Uint8List?> _cache = {};
@@ -136,9 +132,7 @@ class _MemoryArtistCache {
   static bool containsKey(String key) => _cache.containsKey(key);
 }
 
-// ---------------------------------------------------------------------------
 // Riverpod provider for fetching artist images with full caching pipeline
-// ---------------------------------------------------------------------------
 
 /// Normalize artist name to a safe filesystem key
 String _toSafeKey(String name) =>
@@ -150,25 +144,21 @@ final deezerArtistImageProvider =
     FutureProvider.family<Uint8List?, String>((ref, artistName) async {
   final key = _toSafeKey(artistName);
 
-  // 1. Memory cache — instant
   if (_MemoryArtistCache.containsKey(key)) {
     return _MemoryArtistCache.get(key);
   }
 
-  // 2. Disk cache
   final diskCached = await _DeezerImageCache.load(key);
   if (diskCached != null) {
     _MemoryArtistCache.put(key, diskCached);
     return diskCached;
   }
 
-  // 3. Check if previously marked as "not found"
   if (await _DeezerImageCache.isMarkedNotFound(key)) {
     _MemoryArtistCache.put(key, null);
     return null;
   }
 
-  // 4. Fetch from Deezer API
   final artistData = await DeezerApi.searchArtist(artistName);
   if (artistData == null) {
     _DeezerImageCache.markNotFound(key);
@@ -176,7 +166,6 @@ final deezerArtistImageProvider =
     return null;
   }
 
-  // Fetch the large image
   final imageUrl = artistData['big'] ?? artistData['medium'] ?? '';
   if (imageUrl.isEmpty) {
     _DeezerImageCache.markNotFound(key);

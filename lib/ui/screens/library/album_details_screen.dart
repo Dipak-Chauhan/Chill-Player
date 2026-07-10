@@ -114,7 +114,6 @@ class AlbumDetailsScreen extends ConsumerWidget {
                 ),
               ),
               
-              // Tactile Stadium Action Buttons
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 16, right: 16, top: 20, bottom: 12),
@@ -208,7 +207,6 @@ class AlbumDetailsScreen extends ConsumerWidget {
                 ),
               ),
 
-              // Tracks List
               SliverPadding(
                 padding: const EdgeInsets.only(top: 8, bottom: 150, left: 16, right: 16),
                 sliver: SliverList.builder(

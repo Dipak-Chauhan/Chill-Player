@@ -11,9 +11,7 @@ import '../services/playback_persistence.dart';
 import 'audio_engine.dart';
 import 'queue_provider.dart';
 
-// ---------------------------------------------------------------------------
 // Reactive UI Proxies (Syncs just_audio streams identically to old UI state)
-// ---------------------------------------------------------------------------
 class CurrentSongNotifier extends Notifier<Song?> {
   StreamSubscription? _sub;
 
@@ -157,7 +155,6 @@ class IsPlayingNotifier extends Notifier<bool> {
     return false;
   }
   
-  // Expose methods to UI
   void play() => ref.read(audioPlayerProvider).play();
   void pause() => ref.read(audioPlayerProvider).pause();
   void toggle() => state ? pause() : play();

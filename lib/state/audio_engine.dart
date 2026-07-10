@@ -3,9 +3,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:audio_service/audio_service.dart';
 import '../services/audio_handler.dart';
 
-// ---------------------------------------------------------------------------
 // Core Audio Engine & Handler
-// ---------------------------------------------------------------------------
 final audioHandlerProvider = Provider<AudioHandler>((ref) => throw UnimplementedError());
 
 final audioPlayerProvider = Provider<AudioPlayer>((ref) {

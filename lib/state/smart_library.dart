@@ -3,9 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/song.dart';
 import 'audio_state.dart';
 
-// ---------------------------------------------------------------------------
 // Smart Artist Model
-// ---------------------------------------------------------------------------
 class SmartArtist {
   final String name;
   final List<Song> songs;
@@ -26,9 +24,7 @@ class SmartArtist {
       songs.fold(Duration.zero, (sum, s) => sum + s.duration);
 }
 
-// ---------------------------------------------------------------------------
 // Smart Album Model (for album artist grouping)
-// ---------------------------------------------------------------------------
 class SmartAlbum {
   final String name;
   final String albumArtist; // The effective album artist
@@ -46,9 +42,7 @@ class SmartAlbum {
       songs.fold(Duration.zero, (sum, s) => sum + s.duration);
 }
 
-// ---------------------------------------------------------------------------
 // Artist Name Splitter — Handles all common separator patterns
-// ---------------------------------------------------------------------------
 class ArtistParser {
   // Ordered by specificity: longer patterns first to avoid partial matches.
   // Handles: feat., ft., with, and, &, x, ;, /  plus comma
@@ -87,9 +81,7 @@ class ArtistParser {
   static String normalizeKey(String name) => name.trim().toLowerCase();
 }
 
-// ---------------------------------------------------------------------------
 // Smart Artist Provider — Splits & deduplicates artists
-// ---------------------------------------------------------------------------
 class SmartArtistLibraryNotifier extends Notifier<List<SmartArtist>> {
   @override
   List<SmartArtist> build() {
@@ -145,9 +137,7 @@ final smartArtistProvider = NotifierProvider<SmartArtistLibraryNotifier, List<Sm
   SmartArtistLibraryNotifier.new,
 );
 
-// ---------------------------------------------------------------------------
 // Smart Album Provider — Groups albums by albumArtist for proper grouping
-// ---------------------------------------------------------------------------
 class SmartAlbumLibraryNotifier extends Notifier<List<SmartAlbum>> {
   @override
   List<SmartAlbum> build() {

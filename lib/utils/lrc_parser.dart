@@ -33,7 +33,7 @@ class LrcParser {
         
         final text = line.replaceFirst(match.group(0)!, '').trim();
         
-        // Don't add completely empty lines that have sync tags, or do we? 
+        // Don't add completely empty lines that have sync tags, or do we?
         // We can add them to retain beat timing pauses!
         if (text.isNotEmpty) {
            String? parsedSinger;

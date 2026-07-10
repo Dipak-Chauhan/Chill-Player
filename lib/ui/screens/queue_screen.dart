@@ -148,7 +148,6 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
               final oldIndex = player.currentIndex;
               final oldPosition = player.position;
 
-              // Stop and clear
               await ref.read(currentSongProvider.notifier).stop();
 
               // Show snackbar with Undo
@@ -393,7 +392,6 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            // Horizontally scrollable Action Buttons Bar
             if (queue.isNotEmpty) ...[
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -760,9 +758,6 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Animated Mini Music Visualizer Widget
-// ---------------------------------------------------------------------------
 class MiniVisualizer extends StatefulWidget {
   final Color color;
   final bool isPlaying;

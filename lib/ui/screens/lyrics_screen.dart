@@ -23,19 +23,17 @@ import 'lyrics_editor_screen.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import '../widgets/drag_to_dismiss_wrapper.dart';
 
-// ─── Design constants — sourced from YouLy+ CSS analysis ────────────────────
+// Design constants — sourced from YouLy+ CSS analysis
 const double _kFontMain = 28.0;
 const double _kFontSub = 18.0;
 const double _kBlurFar = 3.0; // distant lines
 const double _kBlurNear = 1.5; // adjacent lines
 const double _kScaleOff = 0.93; // inactive line scale
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // LYRICS SCREEN — full opaque modal (opened from NowPlayingScreen)
 // Background: album art blurred + dark overlay (like Apple Music / YouLy+)
 // Timing: Rush model — anchor on positionStream, interpolate with speed×elapsed at 60fps
 // Wipe: YouLy+ dual-layer soft gradient, pure math from position (no ctrl per word)
-// ═══════════════════════════════════════════════════════════════════════════════
 
 class LyricsScreen extends ConsumerStatefulWidget {
   final Song song;
@@ -52,7 +50,7 @@ class LyricsScreen extends ConsumerStatefulWidget {
 
 class _LyricsScreenState extends ConsumerState<LyricsScreen>
     with TickerProviderStateMixin {
-  // ── Scroll ─────────────────────────────────────────────────────────────────
+  // Scroll
   late final ScrollController _scroll;
   bool _userScrolling = false;
   Timer? _scrollLockTimer;
@@ -65,7 +63,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
   int _lyricsOffsetMs = 0;
   final GlobalKey _columnKey = GlobalKey();
 
-  // ── Position ───────────────────────────────────────────────────────────────
+  // Position
   late Ticker _ticker;
   final ValueNotifier<int> _posMs = ValueNotifier(0);
 
@@ -74,19 +72,19 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
   int _lastPositionTime = 0;
   bool _lastPlaying = false;
 
-  // ── Active line ────────────────────────────────────────────────────────────
+  // Active line
   final ValueNotifier<int> _activeIdxNotifier = ValueNotifier(-1);
 
-  // ── Song change tracking ───────────────────────────────────────────────────
+  // Song change tracking
   List<LyricLine>? _currentLyrics;
 
-  // ── Testing Features ───────────────────────────────────────────────────────
+  // Testing Features
   bool _isAmoledMode = false;
   int _artDisplayMode = 0; // 0=Norm, 1=Dim, 2=B&W
 
   late final _player = ref.read(audioPlayerProvider);
 
-  // ── Local caching of player state ──────────────────────────────────────────
+  // Local caching of player state
   Duration _cachedPosition = Duration.zero;
   bool _cachedPlaying = false;
   double _cachedSpeed = 1.0;
@@ -325,7 +323,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     return true;
   }
 
-  // ── Overlay Controls ───────────────────────────────────────────────────────
+  // Overlay Controls
   bool _showControls = false;
   Timer? _controlsTimer;
 
@@ -607,7 +605,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                         fit: StackFit.expand,
                         alignment: Alignment.center,
                         children: [
-                          // 1. Album Art
                           _isAmoledMode
                               ? Stack(
                                   fit: StackFit.expand,
@@ -684,7 +681,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                                   ),
                                 ),
 
-                          // 2. Controls Overlay
                           Positioned.fill(
                             child: IgnorePointer(
                               ignoring: !_showControls,
@@ -843,13 +839,13 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
     Widget contentStack = Stack(
       fit: StackFit.expand,
       children: [
-        // ── Background: album art blurred + dark overlay (Apple Music style) ──
+        // Background: album art blurred + dark overlay (Apple Music style)
         if (!_isAmoledMode) _BlurredBackground(songId: activeSong.id),
 
-        // ── The Foreground Content ──
+        // The Foreground Content
         foregroundContent,
 
-        // ── Top fade gradient ───────────────
+        // Top fade gradient
         Positioned(
           top: 0,
           left: 0,
@@ -869,7 +865,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
           ),
         ),
 
-        // ── Bottom fade gradient ────────────────────────────────────────────
+        // Bottom fade gradient
         Positioned(
           bottom: 0,
           left: 0,
@@ -889,7 +885,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
           ),
         ),
 
-        // ── Mini Translucent Controls & Song Info (Portrait) ────────────────
+        // Mini Translucent Controls & Song Info (Portrait)
         if (!isLandscape)
           Positioned(
             bottom: safePadding.bottom + 24,
@@ -931,7 +927,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Previous
                     SpringButton(
                       onTap: () =>
                           ref.read(audioPlayerProvider).seekToPrevious(),
@@ -956,7 +951,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                       ),
                     ),
                     const SizedBox(width: 24),
-                    // Play/Pause
                     Consumer(
                       builder: (context, ref, child) {
                         final isPlaying = ref.watch(isPlayingProvider);
@@ -998,7 +992,6 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
                       },
                     ),
                     const SizedBox(width: 24),
-                    // Next
                     SpringButton(
                       onTap: () => ref.read(audioPlayerProvider).seekToNext(),
                       child: Container(
@@ -1027,7 +1020,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen>
             ),
           ),
 
-        // ── Header (Always Visible) ──────────────────────
+        // Header (Always Visible)
         Positioned(
           top: 0,
           left: 0,
@@ -1467,9 +1460,7 @@ class _LyricLineWrapperState extends State<_LyricLineWrapper> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // BLURRED BACKGROUND — album art + dark overlay
-// ═══════════════════════════════════════════════════════════════════════════════
 class _BlurredBackground extends StatelessWidget {
   final int songId;
   const _BlurredBackground({required this.songId});
@@ -1480,7 +1471,6 @@ class _BlurredBackground extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Album art (blurred)
           ImageFiltered(
             imageFilter: ImageFilter.blur(
               sigmaX: 40,
@@ -1510,9 +1500,7 @@ class _BlurredBackground extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // LYRIC LINE WIDGET — handles scale animation, blur, opacity
-// ═══════════════════════════════════════════════════════════════════════════════
 class _LyricLineWidget extends StatefulWidget {
   final LyricLine line;
   final bool isActive;
@@ -1697,7 +1685,6 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
             textAlign: textAlign,
           ),
 
-        // Background vocals
         if (widget.line.backgroundLines != null)
           Opacity(
             opacity: 0.70,
@@ -1725,7 +1712,6 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
             ),
           ),
 
-        // Romanization
         if (widget.romanText != null &&
             !(widget.isActive &&
                 (widget.line.words?.isNotEmpty ?? false) &&
@@ -1747,7 +1733,6 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
             ),
           ),
 
-        // Translation
         if (widget.transText != null)
           Padding(
             padding: const EdgeInsets.only(top: 3),
@@ -1769,9 +1754,7 @@ class _LyricLineWidgetState extends State<_LyricLineWidget>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // STATIC TEXT — used for inactive lines, or line-synced LRC active lines
-// ═══════════════════════════════════════════════════════════════════════════════
 class _StaticText extends StatelessWidget {
   final String text;
   final bool isBackground;
@@ -1845,9 +1828,7 @@ class _StaticText extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // GAP INDICATOR — instrumental break 🎶 icon
-// ═══════════════════════════════════════════════════════════════════════════════
 class _GapIndicator extends StatelessWidget {
   final LyricLine line;
   final bool isActive;
@@ -1987,20 +1968,15 @@ class _GapIndicator extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // WORD-BY-WORD LINE
-//
 // Design: YouLy+ dual-layer gradient wipe
 //   Layer 1 (dim):    always visible, alpha ~0.25
 //   Layer 2 (bright): ShaderMask LinearGradient sweeps left→right
 //   Completed words:  full bright + glow shadows
-//
 // Timing: Pure math from posMs (0 controllers for words, as documented)
 //   wordProgress = (posMs - startMs) / durationMs  clamped [0,1]
 //   → directly used as gradient stop position
-//
 // Rush influence: endMs snapped to NEXT word's startMs (eliminates inter-word gaps)
-// ═══════════════════════════════════════════════════════════════════════════════
 class _WordByWordLine extends StatefulWidget {
   final LyricLine line;
   final ValueNotifier<int> posMs;
@@ -2088,9 +2064,7 @@ class _WordByWordLineState extends State<_WordByWordLine> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // SMOOTH WORD — YouLy+ dual-layer gradient wipe with character grow support
-// ═══════════════════════════════════════════════════════════════════════════════
 enum _WordAnimState { future, animating, past }
 
 class _SmoothWord extends ConsumerStatefulWidget {
@@ -2680,7 +2654,6 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
         translateX = (0.015 * fs) * (1.0 - eased);
       }
 
-      // 2. Decaying vibrant glow animation (2.0x word duration, min 1.5s)
       final double glowDurationMs = math.max(widget.durationMs * 2.0, 1500.0);
       final double tGlow = (elapsedMs / glowDurationMs).clamp(0.0, 1.0);
       glowDecay = Curves.easeOut.transform(1.0 - tGlow);
@@ -2728,9 +2701,7 @@ class _SmoothWordState extends ConsumerState<_SmoothWord> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
 // TRANSLATION BOTTOM SHEET
-// ═══════════════════════════════════════════════════════════════════════════════
 class _TranslationSheet extends ConsumerWidget {
   final String currentLang;
   final bool hasTranslation;
@@ -2772,7 +2743,6 @@ class _TranslationSheet extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Drag handle
               Center(
                 child: Container(
                   width: 40,
@@ -2807,7 +2777,6 @@ class _TranslationSheet extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              // Option tiles grouped in a card style
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.03),

@@ -39,7 +39,6 @@ class _TagEditorScreenState extends ConsumerState<TagEditorScreen> {
         _rawMetadata = match.first.getMap;
       }
 
-      // Get file info
       final file = File(widget.song.uri);
       if (await file.exists()) {
         final stat = await file.stat();
@@ -72,11 +71,9 @@ class _TagEditorScreenState extends ConsumerState<TagEditorScreen> {
           : ListView(
               padding: const EdgeInsets.only(bottom: 120),
               children: [
-                // Album art header
                 _buildArtHeader(theme, song),
                 const SizedBox(height: 16),
 
-                // Core Tags section
                 _buildSectionHeader(theme, 'Tags'),
                 _buildTag(theme, 'Title', song.title),
                 _buildTag(theme, 'Artist', song.artist),
@@ -85,7 +82,6 @@ class _TagEditorScreenState extends ConsumerState<TagEditorScreen> {
                 _buildTag(theme, 'Genre', song.genre.isNotEmpty ? song.genre : '—'),
                 _buildTag(theme, 'Duration', _formatDuration(song.duration)),
 
-                // Extended metadata from platform
                 if (_rawMetadata != null) ...[
                   const SizedBox(height: 8),
                   _buildSectionHeader(theme, 'Extended Metadata'),
@@ -105,12 +101,10 @@ class _TagEditorScreenState extends ConsumerState<TagEditorScreen> {
                     _buildTag(theme, 'Channels', _rawMetadata!['channels'] == 2 ? 'Stereo' : '${_rawMetadata!['channels']}'),
                 ],
 
-                // File info
                 const SizedBox(height: 8),
                 _buildSectionHeader(theme, 'File Information'),
                 ..._fileInfo.entries.map((e) => _buildTag(theme, e.key, e.value)),
 
-                // File extension
                 _buildTag(theme, 'Format', song.uri.split('.').last.toUpperCase()),
               ],
             ),
@@ -186,7 +180,6 @@ class _TagEditorScreenState extends ConsumerState<TagEditorScreen> {
   Widget _buildTag(ThemeData theme, String label, String value) {
     return InkWell(
       onLongPress: () {
-        // Copy tag value to clipboard
         _copyToClipboard(value);
       },
       child: Padding(

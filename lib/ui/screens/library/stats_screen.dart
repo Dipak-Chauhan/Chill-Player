@@ -35,7 +35,6 @@ class StatsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         children: [
-          // Summary cards
           Row(
             children: [
               Expanded(child: _StatCard(
@@ -74,7 +73,6 @@ class StatsScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // Top Played
           if (topPlayedSongs.isNotEmpty) ...[
             Text(
               'Most Played',
@@ -151,7 +149,6 @@ class StatsScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // Recently Played
           if (recentSongs.isNotEmpty) ...[
             Text(
               'Recently Played',

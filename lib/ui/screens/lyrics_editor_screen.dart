@@ -323,7 +323,7 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ── Background: album art blurred + dark overlay (matches LyricsScreen exactly) ──
+          // Background: album art blurred + dark overlay (matches LyricsScreen exactly)
           if (!isAmoled)
             Stack(
               fit: StackFit.expand,
@@ -363,7 +363,7 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
             )
           else
             Container(color: Colors.black),
-          // ── Scaffold UI ──
+          // Scaffold UI
           Scaffold(
             backgroundColor: Colors.transparent,
             appBar: AppBar(
@@ -672,7 +672,6 @@ class _LyricsEditorScreenState extends ConsumerState<LyricsEditorScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Drag handle
                 Center(
                   child: Container(
                     width: 40,

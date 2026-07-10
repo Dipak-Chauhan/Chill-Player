@@ -95,9 +95,6 @@ class GenresScreen extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Dynamic Genre Card Widget with Background Collage & Frosted Glass Bottom
-// ---------------------------------------------------------------------------
 class _GenreCard extends StatefulWidget {
   final GenreModel genre;
   final VoidCallback onTap;
@@ -246,9 +243,6 @@ class _GenreCardState extends State<_GenreCard> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Private Artwork Collage Widget for Genres
-// ---------------------------------------------------------------------------
 class _GenreCollage extends StatelessWidget {
   final List<int> songIds;
 
@@ -359,9 +353,6 @@ class _GenreCollage extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Genre Detail Screen
-// ---------------------------------------------------------------------------
 class _GenreDetailScreen extends ConsumerWidget {
   final GenreModel genre;
 

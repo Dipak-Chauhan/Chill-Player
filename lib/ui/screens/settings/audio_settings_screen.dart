@@ -15,7 +15,7 @@ class AudioSettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Audio')),
       body: ListView(
         children: [
-          // ── Crossfade Section ──
+          // Crossfade Section
           _sectionHeader(theme, 'Crossfade'),
           SwitchListTile(
             secondary: const Icon(Icons.shuffle_on_outlined),
@@ -58,7 +58,7 @@ class AudioSettingsScreen extends ConsumerWidget {
 
           const Divider(indent: 16, endIndent: 16),
 
-          // ── Library Filter Section ──
+          // Library Filter Section
           _sectionHeader(theme, 'Library'),
           ListTile(
             leading: const Icon(Icons.timer_outlined),
@@ -83,7 +83,7 @@ class AudioSettingsScreen extends ConsumerWidget {
 
           const Divider(indent: 16, endIndent: 16),
 
-          // ── Output Section ──
+          // Output Section
           _sectionHeader(theme, 'Output'),
           ListTile(
             leading: const Icon(Icons.equalizer),

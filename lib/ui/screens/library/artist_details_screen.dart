@@ -46,7 +46,6 @@ class ArtistDetailsScreen extends ConsumerWidget {
                   ),
                 ),
               ),
-              // Stats & Action bar
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -110,9 +109,7 @@ class ArtistDetailsScreen extends ConsumerWidget {
                 ),
               ),
 
-              // Songs grouped by album
               for (final albumEntry in sortedAlbums) ...[
-                // Album header
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
@@ -152,7 +149,6 @@ class ArtistDetailsScreen extends ConsumerWidget {
                             ],
                           ),
                         ),
-                        // Play this album
                         IconButton(
                           icon: const Icon(Icons.play_circle_outline, size: 28),
                           tooltip: 'Play ${albumEntry.key}',
@@ -167,7 +163,6 @@ class ArtistDetailsScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
-                // Album songs
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, index) {
@@ -208,7 +203,6 @@ class ArtistDetailsScreen extends ConsumerWidget {
                             ? Icon(Icons.bar_chart, color: theme.colorScheme.primary, size: 20)
                             : null,
                         onTap: () async {
-                          // Play from this album section within the artist view
                           await ref.read(queueProvider.notifier).setQueue(albumEntry.value);
                           ref.read(audioPlayerProvider).seek(Duration.zero, index: index);
                           ref.read(isPlayingProvider.notifier).play();
