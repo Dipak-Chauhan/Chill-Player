@@ -74,3 +74,15 @@ A premium, modern Flutter music player featuring responsive Material 3 design, d
    ```bash
    flutter run
    ```
+
+---
+
+## 🤝 Acknowledgements & Inspiration
+
+This project was built with the help of, and inspired by, the following amazing open-source projects. Make sure to check them out:
+
+- [better-lyrics](https://github.com/better-lyrics/better-lyrics) — Synced lyrics parsing and implementation guidance.
+- [YouLyPlus](https://github.com/ibratabian17/YouLyPlus) — Apple Music-style lyrics UI animation and gradient wipe logic.
+- [monochrome](https://github.com/monochrome-music/monochrome) — Music visualizer design reference.
+- [am-lyrics](https://github.com/binimum/am-lyrics) — Apple Music styling and alignment structures.
+
