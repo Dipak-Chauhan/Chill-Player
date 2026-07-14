@@ -39,6 +39,8 @@ final expectedPlayerIndexProvider =
 class QueueNotifier extends Notifier<List<Song>> {
   List<Song> _originalQueue = [];
 
+  List<Song> get originalQueue => _originalQueue;
+
   @override
   List<Song> build() {
     try {
@@ -80,6 +82,7 @@ class QueueNotifier extends Notifier<List<Song>> {
     List<Song> songs, {
     int? initialIndex,
     Duration? initialPosition,
+    List<Song>? originalQueue,
   }) async {
     ref.read(isSwappingPlaylistProvider.notifier).setSwapping(true);
 
@@ -91,10 +94,10 @@ class QueueNotifier extends Notifier<List<Song>> {
         .setExpected(finalInitialIndex);
 
     if (isShuffle) {
-      _originalQueue = List<Song>.from(songs);
+      _originalQueue = originalQueue ?? List<Song>.from(songs);
 
       // Shuffle list while keeping the initial index song active
-      if (finalSongs.isNotEmpty) {
+      if (originalQueue == null && finalSongs.isNotEmpty) {
         final targetSong = finalSongs.removeAt(finalInitialIndex);
         finalSongs.shuffle(math.Random());
         finalSongs.insert(0, targetSong);
@@ -278,12 +281,16 @@ final queueProvider = NotifierProvider<QueueNotifier, List<Song>>(
 class ShuffleModeNotifier extends Notifier<bool> {
   @override
   bool build() {
-    return false;
+    final prefs = ref.watch(sharedPreferencesProvider);
+    return prefs.getBool('shuffle_mode') ?? false;
   }
 
   Future<void> setShuffle(bool val) async {
     if (state != val) {
       state = val;
+
+      final prefs = ref.read(sharedPreferencesProvider);
+      await prefs.setBool('shuffle_mode', val);
 
       final queueNotifier = ref.read(queueProvider.notifier);
       if (val) {

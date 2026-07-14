@@ -50,6 +50,7 @@ class LyricsCacheService {
       };
 
       await file.writeAsString(jsonEncode(data));
+      _pruneCache(); // Prune asynchronously
     } catch (_) {
       // Fail silently on cache write issues so it doesn't disrupt user flow
     }
@@ -75,6 +76,7 @@ class LyricsCacheService {
       await file.writeAsString(
         jsonEncode(lines.map((l) => l.toJson()).toList()),
       );
+      _pruneCache(); // Prune asynchronously
     } catch (_) {
       // Non-fatal: a failed cache write just means we refetch next time.
     }
@@ -86,6 +88,9 @@ class LyricsCacheService {
       final dir = await _getCacheDir();
       final file = File('${dir.path}/${_sanitizeFileName(key)}.json');
       if (!await file.exists()) return null;
+      try {
+        await file.setLastModified(DateTime.now());
+      } catch (_) {}
       final data = jsonDecode(await file.readAsString());
       if (data is! List || data.isEmpty) return null;
       return data
@@ -104,6 +109,9 @@ class LyricsCacheService {
       final file = File('${dir.path}/$fileName.json');
 
       if (!await file.exists()) return null;
+      try {
+        await file.setLastModified(DateTime.now());
+      } catch (_) {}
 
       final content = await file.readAsString();
       final json = jsonDecode(content) as Map<String, dynamic>;
@@ -121,5 +129,42 @@ class LyricsCacheService {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Prunes the oldest cache files if the total exceeds 500.
+  static Future<void> _pruneCache() async {
+    try {
+      final dir = await _getCacheDir();
+      final List<FileSystemEntity> entities = await dir.list().toList();
+      final List<File> files = [];
+      for (final entity in entities) {
+        if (entity is File && entity.path.endsWith('.json')) {
+          files.add(entity);
+        }
+      }
+
+      if (files.length > 500) {
+        final List<MapEntry<File, DateTime>> fileTimes = [];
+        await Future.wait(
+          files.map((file) async {
+            try {
+              final time = await file.lastModified();
+              fileTimes.add(MapEntry(file, time));
+            } catch (_) {
+              fileTimes.add(MapEntry(file, DateTime.fromMillisecondsSinceEpoch(0)));
+            }
+          }),
+        );
+
+        fileTimes.sort((a, b) => a.value.compareTo(b.value));
+
+        final filesToDelete = fileTimes.length - 400;
+        for (int i = 0; i < filesToDelete; i++) {
+          try {
+            await fileTimes[i].key.delete();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 }

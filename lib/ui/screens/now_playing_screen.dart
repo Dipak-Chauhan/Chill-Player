@@ -339,7 +339,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
         children: [
           // Left side: Album Art
           Expanded(
-            flex: 4,
+            flex: 9,
             child: Center(
               child: _buildAlbumArtPageView(
                 context,
@@ -350,11 +350,11 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
               ),
             ),
           ),
-          const SizedBox(width: 48),
+          const SizedBox(width: 32),
 
           // Right side: Controls
           Expanded(
-            flex: 6,
+            flex: 11,
             child: Center(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -362,14 +362,14 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     _buildTitleBlock(ref, song, theme),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 12),
                     const SquigglySeekbar(),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 12),
                     _buildMainControls(ref, theme, isLandscape: true),
-                    const SizedBox(height: 48),
+                    const SizedBox(height: 20),
                     if (ref.watch(showVolumeSliderProvider)) ...[
                       _buildVolumeSlider(ref, theme),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                     ],
                     _buildBottomTools(context, ref, song, theme, rootPadding),
                   ],
@@ -609,8 +609,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
     ThemeData theme, {
     required bool isLandscape,
   }) {
-    final double paddingVal = isLandscape ? 12.0 : 20.0;
-    final double iconSize = isLandscape ? 28.0 : 36.0;
+    final double paddingVal = isLandscape ? 14.0 : 20.0;
+    final double iconSize = isLandscape ? 30.0 : 36.0;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -646,7 +646,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 curve: Curves.elasticOut,
                 padding: EdgeInsets.symmetric(
                   horizontal: isLandscape
-                      ? (isPlaying ? 28 : 16)
+                      ? (isPlaying ? 32 : 20)
                       : (isPlaying ? 48 : 24),
                   vertical: isLandscape ? 16 : (isPlaying ? 28 : 24),
                 ),
@@ -660,7 +660,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen> {
                 ),
                 child: Icon(
                   isPlaying ? Icons.pause : Icons.play_arrow,
-                  size: isLandscape ? 32 : 48,
+                  size: isLandscape ? 36 : 48,
                   color: theme.colorScheme.onPrimaryContainer,
                 ),
               ),

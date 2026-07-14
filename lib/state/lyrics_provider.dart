@@ -37,30 +37,7 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
   // 1. Try API-fetched lyrics first, isolating each fetch in its own try-catch
   // so a failure in one provider doesn't abort the search.
 
-  // 1a. BiniLyrics API — cached high-fidelity syllable-synced Apple Music TTML
-  if (rawLines.isEmpty) {
-    try {
-      final ttmlContent = await BiniLyricsApi.fetchLyrics(
-        currentSong.title,
-        currentSong.artist,
-        duration: currentSong.duration,
-        album: currentSong.album,
-      );
-      if (ttmlContent != null) {
-        final lines = TtmlParser.parse(ttmlContent);
-        if (_validateLyricsLines(lines, currentSong)) {
-          rawLines = lines;
-          // ignore: avoid_print
-          print('LYRICS RESOLVED: BiniLyrics (TTML)');
-        }
-      }
-    } catch (e) {
-      // ignore: avoid_print
-      print('BiniLyrics fetch error: $e');
-    }
-  }
-
-  // 1b. LyricsPlus (KPOE) — Apple-Music-style syllable-synced lyrics using /v2 JSON
+  // 1a. LyricsPlus (KPOE) — Apple-Music-style syllable-synced lyrics using /v2 JSON
   if (rawLines.isEmpty) {
     try {
       final kpoeData = await LyricsPlusApi.fetchKpoe(
@@ -82,6 +59,29 @@ final lyricsProvider = FutureProvider<List<LyricLine>>((ref) async {
     } catch (e) {
       // ignore: avoid_print
       print('LyricsPlus fetch error: $e');
+    }
+  }
+
+  // 1b. BiniLyrics API — cached high-fidelity syllable-synced Apple Music TTML
+  if (rawLines.isEmpty) {
+    try {
+      final ttmlContent = await BiniLyricsApi.fetchLyrics(
+        currentSong.title,
+        currentSong.artist,
+        duration: currentSong.duration,
+        album: currentSong.album,
+      );
+      if (ttmlContent != null) {
+        final lines = TtmlParser.parse(ttmlContent);
+        if (_validateLyricsLines(lines, currentSong)) {
+          rawLines = lines;
+          // ignore: avoid_print
+          print('LYRICS RESOLVED: BiniLyrics (TTML)');
+        }
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('BiniLyrics fetch error: $e');
     }
   }
 

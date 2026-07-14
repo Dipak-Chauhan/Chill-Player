@@ -45,11 +45,6 @@ class CurrentSongNotifier extends Notifier<Song?> {
       if (index != null && index >= 0 && index < queue.length) {
         final newSong = queue[index];
         if (state?.id != newSong.id) {
-          // Record play stat
-          ref.read(listeningStatsProvider.notifier).recordPlay(
-            newSong.id,
-            durationMs: newSong.duration.inMilliseconds,
-          );
           state = newSong;
 
           // Persist playback state for app restart recovery
@@ -98,12 +93,14 @@ class CurrentSongNotifier extends Notifier<Song?> {
 
   void _savePlaybackState(Song song, int index, List<Song> queue) {
     try {
+      final originalQueue = ref.read(queueProvider.notifier).originalQueue;
       PlaybackPersistence.saveSnapshot(
         prefs: ref.read(sharedPreferencesProvider),
         song: song,
         positionMs: ref.read(audioPlayerProvider).position.inMilliseconds,
         queue: queue,
         queueIndex: index,
+        originalQueue: originalQueue,
       );
     } catch (e, st) {
       // Don't let persistence errors affect playback, but don't hide them either.
@@ -134,12 +131,14 @@ class IsPlayingNotifier extends Notifier<bool> {
           final currentSong = ref.read(currentSongProvider);
           if (currentSong != null && player.currentIndex != null) {
             try {
+              final originalQueue = ref.read(queueProvider.notifier).originalQueue;
               PlaybackPersistence.saveSnapshot(
                 prefs: ref.read(sharedPreferencesProvider),
                 song: currentSong,
                 positionMs: player.position.inMilliseconds,
                 queue: queue,
                 queueIndex: player.currentIndex!,
+                originalQueue: originalQueue,
               );
             } catch (e, st) {
               debugPrint('Failed to persist playback state on pause: $e\n$st');
@@ -168,6 +167,10 @@ class PlaybackPositionNotifier extends Notifier<Duration> {
   Duration _lastSavePos = Duration.zero;
   bool _isCrossfading = false;
 
+  int? _currentRecordedSongId;
+  int _currentSongAccumulatedMs = 0;
+  int? _lastActiveSongId;
+
   @override
   Duration build() {
     Duration initialPosition = Duration.zero;
@@ -194,12 +197,35 @@ class PlaybackPositionNotifier extends Notifier<Duration> {
     });
 
     _posSub = player.positionStream.listen((pos) {
+      final currentSong = ref.read(currentSongProvider);
+      if (currentSong != null) {
+        if (_lastActiveSongId != currentSong.id) {
+          _lastActiveSongId = currentSong.id;
+          _currentSongAccumulatedMs = 0;
+        }
+      }
+
+      // Reset record status if the user seeks backwards significantly or song loops
+      if (pos < _lastPos - const Duration(seconds: 5)) {
+        _currentRecordedSongId = null;
+        _currentSongAccumulatedMs = 0;
+      }
+
       // Calculate delta for listening stats
       if (pos > _lastPos) {
         final deltaMs = (pos - _lastPos).inMilliseconds;
         // Ignore giant jumps (seeking) — only count natural playback (<2s delta)
         if (deltaMs > 0 && deltaMs < 2000) {
           ref.read(listeningStatsProvider.notifier).addListeningTime(deltaMs);
+
+          if (currentSong != null && _currentRecordedSongId != currentSong.id) {
+            _currentSongAccumulatedMs += deltaMs;
+            final thresholdMs = (currentSong.duration.inMilliseconds / 2).clamp(0, 30000).toInt();
+            if (_currentSongAccumulatedMs >= thresholdMs) {
+              ref.read(listeningStatsProvider.notifier).recordPlay(currentSong.id);
+              _currentRecordedSongId = currentSong.id;
+            }
+          }
         }
       }
       _lastPos = pos;
@@ -213,12 +239,14 @@ class PlaybackPositionNotifier extends Notifier<Duration> {
         if (currentSong != null && player.currentIndex != null) {
           try {
             final queue = ref.read(queueProvider);
+            final originalQueue = ref.read(queueProvider.notifier).originalQueue;
             PlaybackPersistence.saveSnapshot(
               prefs: ref.read(sharedPreferencesProvider),
               song: currentSong,
               positionMs: pos.inMilliseconds,
               queue: queue,
               queueIndex: player.currentIndex!,
+              originalQueue: originalQueue,
             );
           } catch (e, st) {
             debugPrint('Failed to persist playback position: $e\n$st');
@@ -267,24 +295,43 @@ class LoopModeNotifier extends Notifier<LoopMode> {
   @override
   LoopMode build() {
     final player = ref.watch(audioPlayerProvider);
+    final prefs = ref.watch(sharedPreferencesProvider);
+
+    final savedModeStr = prefs.getString('loop_mode') ?? 'off';
+    final initialMode = LoopMode.values.firstWhere(
+      (m) => m.name == savedModeStr,
+      orElse: () => LoopMode.off,
+    );
+
+    // Apply the saved loop mode to the player asynchronously
+    player.setLoopMode(initialMode);
+
     _sub?.cancel();
     _sub = player.loopModeStream.listen((loopMode) {
-      if (state != loopMode) state = loopMode;
+      if (state != loopMode) {
+        state = loopMode;
+        prefs.setString('loop_mode', loopMode.name);
+      }
     });
     ref.onDispose(() => _sub?.cancel());
-    return LoopMode.off;
+    return initialMode;
   }
 
   void toggle() {
     final player = ref.read(audioPlayerProvider);
     final current = state;
+    LoopMode next;
     if (current == LoopMode.off) {
-      player.setLoopMode(LoopMode.all);
+      next = LoopMode.all;
     } else if (current == LoopMode.all) {
-      player.setLoopMode(LoopMode.one);
+      next = LoopMode.one;
     } else {
-      player.setLoopMode(LoopMode.off);
+      next = LoopMode.off;
     }
+    player.setLoopMode(next);
+    
+    final prefs = ref.read(sharedPreferencesProvider);
+    prefs.setString('loop_mode', next.name);
   }
 }
 final loopModeProvider = NotifierProvider<LoopModeNotifier, LoopMode>(LoopModeNotifier.new);

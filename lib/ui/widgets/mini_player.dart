@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:animations/animations.dart';
@@ -67,120 +68,133 @@ class MiniPlayerHero extends ConsumerWidget {
           ref.read(audioPlayerProvider).seekToPrevious();
         }
       },
-      child: Material(
-        type: MaterialType.transparency,
-        child: Container(
-          height: 72,
-          clipBehavior: Clip.antiAlias,
-          // Near-opaque frosted surface (no live BackdropFilter) so the mini
-          // player is cheap to scroll behind and to morph in the transition.
-          decoration: BoxDecoration(
-            color: Theme.of(
-              context,
-            ).colorScheme.surfaceContainerHigh.withValues(alpha: 0.97),
-            borderRadius: BorderRadius.circular(36),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.08),
-              width: 0.5,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(36),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.15),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
-          ),
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    key: miniArtKey,
-                    width: 56,
-                    height: 56,
-                    child: SmoothArtWidget(
-                      id: song.id,
-                      size: 200,
-                      isMini: true,
-                      borderRadius: 32,
-                      iconSize: 24,
-                      isPlaying: isPlaying,
-                    ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Material(
+              type: MaterialType.transparency,
+              child: Container(
+                height: 72,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHigh.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(36),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    width: 0.5,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
+                ),
+                child: Stack(
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          song.title,
-                          key: miniTitleKey,
-                          style: Theme.of(context).textTheme.titleMedium,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          key: miniArtKey,
+                          width: 56,
+                          height: 56,
+                          child: SmoothArtWidget(
+                            id: song.id,
+                            size: 200,
+                            isMini: true,
+                            borderRadius: 32,
+                            iconSize: 24,
+                            isPlaying: isPlaying,
+                          ),
                         ),
-                        Text(
-                          song.artist,
-                          key: miniArtistKey,
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onSurfaceVariant
-                                    .withValues(alpha: 0.7),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                song.title,
+                                key: miniTitleKey,
+                                style: Theme.of(context).textTheme.titleMedium,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                              Text(
+                                song.artist,
+                                key: miniArtistKey,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant
+                                          .withValues(alpha: 0.7),
+                                    ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
+                        if (extraControls)
+                          IconButton(
+                            icon: const Icon(Icons.skip_previous),
+                            iconSize: 32,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            onPressed: () =>
+                                ref.read(audioPlayerProvider).seekToPrevious(),
+                          ),
+                        IconButton(
+                          icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
+                          iconSize: 32,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          onPressed: () =>
+                              ref.read(isPlayingProvider.notifier).toggle(),
+                        ),
+                        if (extraControls)
+                          IconButton(
+                            icon: const Icon(Icons.skip_next),
+                            iconSize: 32,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            onPressed: () =>
+                                ref.read(audioPlayerProvider).seekToNext(),
+                          ),
+                        const SizedBox(width: 8),
                       ],
                     ),
-                  ),
-                  if (extraControls)
-                    IconButton(
-                      icon: const Icon(Icons.skip_previous),
-                      iconSize: 32,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      onPressed: () =>
-                          ref.read(audioPlayerProvider).seekToPrevious(),
-                    ),
-                  IconButton(
-                    icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow),
-                    iconSize: 32,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    onPressed: () =>
-                        ref.read(isPlayingProvider.notifier).toggle(),
-                  ),
-                  if (extraControls)
-                    IconButton(
-                      icon: const Icon(Icons.skip_next),
-                      iconSize: 32,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      onPressed: () =>
-                          ref.read(audioPlayerProvider).seekToNext(),
-                    ),
-                  const SizedBox(width: 8),
-                ],
-              ),
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Consumer(
-                  builder: (context, ref, child) {
-                    final position = ref.watch(playbackPositionProvider);
-                    final durMs = song.duration.inMilliseconds > 0
-                        ? song.duration.inMilliseconds
-                        : 1;
-                    final progress = (position.inMilliseconds / durMs).clamp(
-                      0.0,
-                      1.0,
-                    );
-                    return LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 2.5,
-                      backgroundColor: Colors.transparent,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Theme.of(context).colorScheme.primary,
+                    Align(
+                      alignment: Alignment.bottomCenter,
+                      child: Consumer(
+                        builder: (context, ref, child) {
+                          final position = ref.watch(playbackPositionProvider);
+                          final durMs = song.duration.inMilliseconds > 0
+                              ? song.duration.inMilliseconds
+                              : 1;
+                          final progress = (position.inMilliseconds / durMs).clamp(
+                            0.0,
+                            1.0,
+                          );
+                          return LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 2.5,
+                            backgroundColor: Colors.transparent,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Theme.of(context).colorScheme.primary,
+                            ),
+                          );
+                        },
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),

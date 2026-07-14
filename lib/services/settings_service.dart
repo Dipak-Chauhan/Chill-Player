@@ -53,6 +53,18 @@ final amoledModeProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
   return PrefNotifier<bool>('amoled_mode', false);
 });
 
+final hideLandscapeArtProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
+  return PrefNotifier<bool>('hide_landscape_art', false);
+});
+
+final swapRomanizationProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
+  return PrefNotifier<bool>('swap_romanization_to_main', false);
+});
+
+final onlyShowRomanizationProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
+  return PrefNotifier<bool>('only_show_romanization', false);
+});
+
 final showSongInfoProvider = NotifierProvider<PrefNotifier<bool>, bool>(() {
   return PrefNotifier<bool>('show_song_info', true);
 });

@@ -97,7 +97,7 @@ class ListeningStatsNotifier extends Notifier<ListeningStats> {
   }
 
   /// Record a song play event
-  void recordPlay(int songId, {int durationMs = 0}) {
+  void recordPlay(int songId) {
     final newCounts = Map<int, int>.from(state.playCounts);
     newCounts[songId] = (newCounts[songId] ?? 0) + 1;
 
@@ -107,7 +107,6 @@ class ListeningStatsNotifier extends Notifier<ListeningStats> {
     state = state.copyWith(
       playCounts: newCounts,
       lastPlayed: newLastPlayed,
-      totalListenedMs: state.totalListenedMs + durationMs,
       totalSongsPlayed: state.totalSongsPlayed + 1,
     );
     _saveToDisk();

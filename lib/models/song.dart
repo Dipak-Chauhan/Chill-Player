@@ -7,6 +7,7 @@ class Song {
   final String genre;
   final String uri; // File path on the device
   final Duration duration;
+  final int dateAdded; // Epoch timestamp in seconds
 
   const Song({
     required this.id,
@@ -17,6 +18,7 @@ class Song {
     this.genre = '',
     required this.uri,
     required this.duration,
+    this.dateAdded = 0,
   });
 
   factory Song.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class Song {
       genre: json['genre'] as String? ?? '',
       uri: json['uri'] as String,
       duration: Duration(milliseconds: json['durationMs'] as int),
+      dateAdded: json['dateAdded'] as int? ?? 0,
     );
   }
 
@@ -42,6 +45,7 @@ class Song {
       'genre': genre,
       'uri': uri,
       'durationMs': duration.inMilliseconds,
+      'dateAdded': dateAdded,
     };
   }
 

@@ -173,6 +173,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           genre: s.genre ?? '',
           uri: s.data,
           duration: Duration(milliseconds: s.duration ?? 0),
+          dateAdded: s.dateAdded ?? 0,
         );
       }).toList();
     }
@@ -202,6 +203,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           .map((id) => songMap[id]!)
           .toList();
 
+      final restoredOriginalQueue = savedState.originalQueueIds.isNotEmpty
+          ? savedState.originalQueueIds
+              .where((id) => songMap.containsKey(id))
+              .map((id) => songMap[id]!)
+              .toList()
+          : null;
+
       bool isMockedQueue = ref.read(queueProvider).length <= 1;
       if (restoredQueue.isNotEmpty && (ref.read(queueProvider).isEmpty || isMockedQueue)) {
         final idx = savedState.queueIndex.clamp(0, restoredQueue.length - 1);
@@ -209,6 +217,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           restoredQueue,
           initialIndex: idx,
           initialPosition: Duration(milliseconds: savedState.positionMs),
+          originalQueue: restoredOriginalQueue,
         );
       }
     }
@@ -423,29 +432,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ), // Closes NotificationListener
       bottomNavigationBar: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Color.lerp(
-              Theme.of(context).colorScheme.surfaceContainer,
-              Theme.of(context).colorScheme.primary,
-              0.05, // 5% primary tint for subtle distinction
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Color.lerp(
+                Theme.of(context).colorScheme.surfaceContainer,
+                Theme.of(context).colorScheme.primary,
+                0.05, // 5% primary tint for subtle distinction
+              )!.withValues(alpha: 0.65),
             ),
-          ),
-          child: VenomNavigationBar(
-            pageController: _pageController,
-            currentIndex: _bottomNavIndex,
-            onTap: (value) {
-              if (_bottomNavIndex == value) return;
-              setState(() {
-                _bottomNavIndex = value;
-              });
-              _pageController.animateToPage(
-                value,
-                duration: const Duration(milliseconds: 250), // Rapid snap timing
-                curve: Curves.easeOutQuart, // Punchy, extremely fast start that glides directly onto target
-              );
-            },
+            child: VenomNavigationBar(
+              pageController: _pageController,
+              currentIndex: _bottomNavIndex,
+              onTap: (value) {
+                if (_bottomNavIndex == value) return;
+                setState(() {
+                  _bottomNavIndex = value;
+                });
+                _pageController.animateToPage(
+                  value,
+                  duration: const Duration(milliseconds: 250), // Rapid snap timing
+                  curve: Curves.easeOutQuart, // Punchy, extremely fast start that glides directly onto target
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -462,7 +474,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.library_music, size: 64, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
+            Icon(Icons.library_music,
+                size: 64,
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3)),
             const SizedBox(height: 16),
             Text("Your library is empty", style: theme.textTheme.titleLarge),
           ],
@@ -470,6 +484,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
     }
 
+    // 1. Calculate Music Greeting
+    final musicGreetings = [
+      'Ready to chill?',
+      'Let the music play',
+      'Keep on chilling',
+      'Your daily soundtrack',
+      'Vibe with your library',
+      'Sounds like a good time',
+      'Turn up the volume',
+      'Drown out the noise',
+    ];
+    final greetingIndex = (DateTime.now().hour + DateTime.now().day) % musicGreetings.length;
+    final greeting = musicGreetings[greetingIndex];
+
+    // 2. Recently Played Songs
     final recentIds = stats.recentlyPlayed(limit: 10);
     final recentSongs = <Song>[];
     for (final id in recentIds) {
@@ -477,123 +506,250 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (match.isNotEmpty) recentSongs.add(match.first);
     }
 
-    final topPadding = MediaQuery.of(context).padding.top;
-    return ListView(
-      padding: EdgeInsets.fromLTRB(16, 88.0 + topPadding, 16, 120.0),
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.primaryContainer,
-                Color.lerp(theme.colorScheme.primaryContainer, theme.colorScheme.tertiaryContainer, 0.4)!,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(24),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () async {
-                // Generate daily mix: top played + some random
-                final mixIds = Set<int>.from(stats.topPlayed(limit: 15));
-                final mixSongs = library.where((s) => mixIds.contains(s.id)).toList();
-                
-                // Fill rest with random
-                final shuffledRest = List<Song>.from(library.where((s) => !mixIds.contains(s.id)))..shuffle();
-                mixSongs.addAll(shuffledRest.take(30 - mixSongs.length));
-                mixSongs.shuffle();
+    // 3. Most Played Songs (Top 5)
+    final topIds = stats.topPlayed(limit: 5);
+    final topSongs = <Song>[];
+    for (final id in topIds) {
+      final match = library.where((s) => s.id == id);
+      if (match.isNotEmpty) topSongs.add(match.first);
+    }
 
-                if (mixSongs.isNotEmpty) {
-                  await ref.read(queueProvider.notifier).setQueue(mixSongs);
-                  ref.read(audioPlayerProvider).seek(Duration.zero, index: 0);
-                  ref.read(isPlayingProvider.notifier).play();
-                }
-              },
+    // 4. Recently Added Songs
+    final recentlyAdded = List<Song>.from(library)
+      ..sort((a, b) => b.dateAdded.compareTo(a.dateAdded));
+    final latestSongs = recentlyAdded.take(10).toList();
+
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    return RefreshIndicator(
+      edgeOffset: 88.0 + topPadding,
+      onRefresh: () async {
+        final prefs = ref.read(sharedPreferencesProvider);
+        await _syncLibraryBackground(prefs, showProgress: false);
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(16, 88.0 + topPadding, 16, 120.0),
+        children: [
+        // Welcome Greeting Header
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              greeting,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                fontSize: 30,
+                letterSpacing: -1.0,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "Here is your music dashboard.",
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+              ),
+            ),
+          ],
+        ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1, end: 0),
+
+        const SizedBox(height: 24),
+
+        // Quick Actions Row
+        Row(
+          children: [
+            Expanded(
               child: Container(
-                padding: const EdgeInsets.all(24),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              'MADE FOR YOU',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: theme.colorScheme.onPrimaryContainer,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Daily Mix',
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Based on your recent listening',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.7),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                            blurRadius: 16,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: Icon(Icons.play_arrow_rounded, size: 40, color: theme.colorScheme.onPrimary),
-                    ),
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      theme.colorScheme.primary,
+                      theme.colorScheme.secondary,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    )
                   ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () async {
+                      HapticService.medium();
+                      if (library.isEmpty) return;
+                      await ref.read(shuffleModeProvider.notifier).setShuffle(true);
+                      final randomIndex = math.Random().nextInt(library.length);
+                      await ref.read(queueProvider.notifier).setQueue(
+                            library,
+                            initialIndex: randomIndex,
+                          );
+                      ref.read(isPlayingProvider.notifier).play();
+                    },
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.shuffle, color: theme.colorScheme.onPrimary, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Shuffle',
+                            style: TextStyle(
+                              color: theme.colorScheme.onPrimary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
-        )
-        .animate()
-        .fadeIn(duration: 400.ms, curve: Curves.easeOutCubic)
-        .slideY(begin: 0.1, end: 0.0, duration: 400.ms, curve: Curves.easeOutCubic),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () async {
+                      HapticService.medium();
+                      final favoriteIds = stats.topPlayed(limit: 20);
+                      final favoriteSongs = library.where((s) => favoriteIds.contains(s.id)).toList();
+                      if (favoriteSongs.isEmpty) return;
+                      favoriteSongs.shuffle();
+                      await ref.read(queueProvider.notifier).setQueue(favoriteSongs);
+                      ref.read(isPlayingProvider.notifier).play();
+                    },
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.star_rounded, color: theme.colorScheme.primary, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Favorites',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                height: 44,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHigh,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () async {
+                      HapticService.medium();
+                      if (latestSongs.isEmpty) return;
+                      final fresh = List<Song>.from(latestSongs)..shuffle();
+                      await ref.read(queueProvider.notifier).setQueue(fresh);
+                      ref.read(isPlayingProvider.notifier).play();
+                    },
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.auto_awesome, color: theme.colorScheme.secondary, size: 16),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Fresh',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ).animate().fadeIn(delay: 100.ms, duration: 400.ms),
+
+        const SizedBox(height: 28),
+
+        // Quick Stats Row
+        Row(
+          children: [
+            Expanded(
+              child: _QuickStatCard(
+                icon: Icons.timer,
+                title: 'Time Listened',
+                value: stats.totalListenedFormatted,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _QuickStatCard(
+                icon: Icons.library_music,
+                title: 'Total Songs',
+                value: '${library.length}',
+                color: theme.colorScheme.secondary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _QuickStatCard(
+                icon: Icons.play_circle_fill_rounded,
+                title: 'Plays',
+                value: '${stats.totalSongsPlayed}',
+                color: theme.colorScheme.tertiary,
+              ),
+            ),
+          ],
+        ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
 
         const SizedBox(height: 32),
 
+        // Recently Played Section
         if (recentSongs.isNotEmpty) ...[
           Row(
             children: [
-              Text('Jump back in', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Recently Played',
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -682,32 +838,248 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               },
             ),
           ),
+          const SizedBox(height: 32),
         ],
 
-        const SizedBox(height: 32),
+        // Recently Added Section
+        if (latestSongs.isNotEmpty) ...[
+          Row(
+            children: [
+              Text(
+                'Recently Added',
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 180,
+            child: ListEntranceAnimation(
+              builder: (context, animation) {
+                return ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  clipBehavior: Clip.none,
+                  itemCount: latestSongs.length,
+                  itemBuilder: (context, index) {
+                    final song = latestSongs[index];
+                    final double start = (index * 0.05).clamp(0.0, 0.7);
+                    final double end = (start + 0.35).clamp(0.0, 1.0);
+                    final itemAnim = CurvedAnimation(
+                      parent: animation,
+                      curve: Interval(start, end, curve: Curves.easeOutCubic),
+                    );
 
-        Row(
-          children: [
-            Expanded(
-              child: _QuickStatCard(
-                icon: Icons.timer,
-                title: 'Time Listened',
-                value: stats.totalListenedFormatted,
-                color: theme.colorScheme.secondaryContainer,
-              ),
+                    return FadeTransition(
+                      opacity: itemAnim,
+                      child: SlideTransition(
+                        position: itemAnim.drive(Tween<Offset>(
+                          begin: const Offset(0.15, 0.0),
+                          end: Offset.zero,
+                        )),
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 16),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(16),
+                            onTap: () async {
+                              await ref.read(queueProvider.notifier).setQueue([song]);
+                              ref.read(audioPlayerProvider).seek(Duration.zero, index: 0);
+                              ref.read(isPlayingProvider.notifier).play();
+                            },
+                            child: SizedBox(
+                              width: 120,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Stack(
+                                    children: [
+                                      Container(
+                                        width: 120,
+                                        height: 120,
+                                        decoration: BoxDecoration(
+                                          borderRadius: BorderRadius.circular(16),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withValues(alpha: 0.12),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
+                                            )
+                                          ],
+                                        ),
+                                        child: SmoothArtWidget(
+                                          id: song.id,
+                                          size: 200,
+                                          borderRadius: 16,
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primaryContainer,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(
+                                              color: theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.2),
+                                              width: 0.8,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            'NEW',
+                                            style: TextStyle(
+                                              color: theme.colorScheme.onPrimaryContainer,
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    song.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    song.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _QuickStatCard(
-                icon: Icons.library_music,
-                title: 'Total Songs',
-                value: '${library.length}',
-                color: theme.colorScheme.tertiaryContainer,
+          ),
+          const SizedBox(height: 32),
+        ],
+
+        // Most Played Section (Top 5)
+        if (topSongs.isNotEmpty) ...[
+          Row(
+            children: [
+              Text(
+                'Most Played Songs',
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Column(
+            children: List.generate(topSongs.length, (index) {
+              final song = topSongs[index];
+              final playCount = stats.playCounts[song.id] ?? 0;
+
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withValues(alpha: 0.15),
+                  ),
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Ranking number badge
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: index == 0
+                              ? theme.colorScheme.primaryContainer
+                              : (index == 1
+                                  ? theme.colorScheme.secondaryContainer
+                                  : theme.colorScheme.surfaceContainerHighest),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '#${index + 1}',
+                            style: TextStyle(
+                              color: index == 0
+                                  ? theme.colorScheme.onPrimaryContainer
+                                  : (index == 1
+                                      ? theme.colorScheme.onSecondaryContainer
+                                      : theme.colorScheme.onSurfaceVariant),
+                              fontWeight: FontWeight.w900,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: SmoothArtWidget(
+                            id: song.id,
+                            size: 100,
+                            borderRadius: 8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  title: Text(
+                    song.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    song.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+                    ),
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$playCount ${playCount == 1 ? 'play' : 'plays'}',
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  onTap: () async {
+                    await ref.read(queueProvider.notifier).setQueue([song]);
+                    ref.read(audioPlayerProvider).seek(Duration.zero, index: 0);
+                    ref.read(isPlayingProvider.notifier).play();
+                  },
+                ),
+              ).animate().fadeIn(delay: (300 + index * 50).ms, duration: 400.ms);
+            }),
+          ),
+        ],
       ],
+    ),
     );
   }
 
@@ -1210,7 +1582,8 @@ class _QuickStatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(16),
+      height: 116,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -1230,17 +1603,19 @@ class _QuickStatCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(icon, color: color, size: 16),
           ),
-          const SizedBox(height: 12),
+          const Spacer(),
           Text(
             value,
-            style: theme.textTheme.headlineMedium?.copyWith(
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.bold,
               letterSpacing: -0.5,
             ),
@@ -1248,7 +1623,12 @@ class _QuickStatCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             title,
-            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontSize: 10,
+            ),
           ),
         ],
       ),
